@@ -3,12 +3,13 @@ use std::{
     collections::BTreeSet,
     ffi::{CString, NulError},
     mem::zeroed,
+    process::Command,
 };
 
 use thiserror::Error;
 use x11::{
     xinerama,
-    xlib::{self, CurrentTime, RevertToNone},
+    xlib::{self, AnyModifier, CurrentTime, RevertToNone, XKeyPressedEvent},
 };
 
 pub type Window = u64;
@@ -43,9 +44,18 @@ impl MiniWM {
             xlib::XSelectInput(
                 self.display,
                 xlib::XDefaultRootWindow(self.display),
-                xlib::SubstructureRedirectMask | xlib::SubstructureNotifyMask,
+                xlib::SubstructureRedirectMask
+                    | xlib::SubstructureNotifyMask
+                    | xlib::StructureNotifyMask
+                    | xlib::EnterWindowMask,
             );
         }
+        Command::new("feh")
+            .arg("--bg-scale")
+            .arg("/usr/share/backgrounds/gruvbox/astronaut.jpg")
+            .spawn() // Spawns the command as a new process.
+            .expect("failed to execute process");
+        self.grab_keys();
         Ok(())
     }
     pub fn run(&mut self) -> Result<(), MiniWMError> {
@@ -60,8 +70,17 @@ impl MiniWM {
                     xlib::UnmapNotify => {
                         self.remove_window(event)?;
                     }
+                    xlib::KeyPress => {
+                        self.handle_keypress(event);
+                    }
+                    xlib::EnterNotify => {
+                        println!("h {:?}", event);
+                        self.focus_from_cursor(event);
+                    }
+                    xlib::ConfigureNotify => self.grab_keys(), //called when root window is changed by feh for example
                     _ => {
-                        println!("unknown event {:?}", event);
+                        // println!("unknown event {:?}", event);
+                        continue;
                     }
                 }
             }
@@ -69,11 +88,14 @@ impl MiniWM {
     }
 
     fn create_window(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
-        println!("creating a window");
         let event: xlib::XMapRequestEvent = From::from(event);
-        unsafe { xlib::XMapWindow(self.display, event.window) };
+        println!("creating a window id  {}", event.window);
+        unsafe { xlib::XMapRaised(self.display, event.window) };
         unsafe {
             xlib::XSetInputFocus(self.display, event.window, RevertToNone, CurrentTime);
+        }
+        unsafe {
+            xlib::XSelectInput(self.display, event.window, xlib::EnterWindowMask);
         }
         self.windows.insert(event.window);
         self.horizontal_layout()
@@ -99,21 +121,6 @@ impl MiniWM {
         }
     }
 
-    fn vertical_layout(&self) -> Result<(), MiniWMError> {
-        if self.windows.is_empty() {
-            return Ok(());
-        }
-        let (width, height) = self.get_screen_size()?;
-        let mut start = 0;
-        let win_width = width as i32 / self.windows.len() as i32;
-        self.windows.iter().for_each(|window| {
-            self.move_window(*window, start, 0_i32);
-            self.resize_window(*window, win_width as u32, height as u32);
-            start += win_width;
-        });
-        Ok(())
-    }
-
     fn horizontal_layout(&self) -> Result<(), MiniWMError> {
         if self.windows.is_empty() {
             return Ok(());
@@ -137,5 +144,40 @@ impl MiniWM {
 
     fn resize_window(&self, window: u64, width: u32, height: u32) {
         unsafe { xlib::XResizeWindow(self.display, window, width, height) };
+    }
+
+    fn handle_keypress(&self, event: xlib::XEvent) {
+        let event: xlib::XKeyEvent = From::from(event);
+        if event.keycode == 36 {
+            // ctrl+enter
+            println!("starting alacritty");
+            Command::new("alacritty")
+                .spawn() // Spawns the command as a new process.
+                .expect("failed to execute process");
+        }
+        println!("got control+{}", event.keycode);
+    }
+
+    fn grab_keys(&self) {
+        println!("grabbing keys");
+        unsafe {
+            xlib::XGrabKey(
+                self.display,
+                xlib::AnyKey,
+                xlib::ControlMask,
+                xlib::XDefaultRootWindow(self.display),
+                0,
+                xlib::GrabModeAsync,
+                xlib::GrabModeAsync,
+            );
+        }
+    }
+
+    fn focus_from_cursor(&self, event: xlib::XEvent) {
+        let event: xlib::XEnterWindowEvent = From::from(event);
+        println!("focusing window {}", event.window);
+        unsafe {
+            xlib::XSetInputFocus(self.display, event.window, RevertToNone, CurrentTime);
+        }
     }
 }

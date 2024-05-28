@@ -1,0 +1,1 @@
+exec ./target/debug/miniwm
