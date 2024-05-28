@@ -1,0 +1,16 @@
+[package]
+name = "miniwm"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+thiserror = "1.0.61"
+x11 = { version = "2.21.0", features = ["xlib","xinerama"] }
+
+[profile.release]
+strip = true
+opt-level = "z"
+lto = true
+panic="abort"
