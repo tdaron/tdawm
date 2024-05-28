@@ -60,12 +60,6 @@ impl MiniWM {
                     xlib::UnmapNotify => {
                         self.remove_window(event)?;
                     }
-                    // xlib::ConfigureRequest => {
-                    //     todo!();
-                    // }
-                    // xlib::ClientMessage => {
-                    //     todo!();
-                    // }
                     _ => {
                         println!("unknown event {:?}", event);
                     }
