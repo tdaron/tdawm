@@ -1,15 +1,18 @@
 use core::slice;
 use std::{
-    collections::BTreeSet,
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
     ffi::{CString, NulError},
+    fmt::format,
     mem::zeroed,
     process::Command,
+    rc::Rc,
 };
 
 use thiserror::Error;
 use x11::{
     xinerama,
-    xlib::{self, AnyModifier, CurrentTime, RevertToNone, XKeyPressedEvent},
+    xlib::{self, CurrentTime, RevertToNone, XBlackPixel, XDrawString, XFontStruct},
 };
 
 pub type Window = u64;
@@ -24,9 +27,33 @@ pub enum MiniWMError {
     ScreenNotFound,
 }
 
+struct Workspace {
+    windows: BTreeSet<Window>,
+    id: u32,
+}
+
+impl Workspace {
+    fn new(id: u32) -> Self {
+        Workspace {
+            windows: BTreeSet::new(),
+            id,
+        }
+    }
+
+    fn add_window(&mut self, window: Window) {
+        self.windows.insert(window);
+    }
+
+    fn remove_window(&mut self, window: &Window) {
+        self.windows.remove(window);
+    }
+}
 pub struct MiniWM {
     display: *mut xlib::Display,
     windows: BTreeSet<Window>,
+    workspaces: BTreeMap<u32, Rc<RefCell<Workspace>>>,
+    current_workspace: Rc<RefCell<Workspace>>,
+    status_bar: Window,
 }
 
 impl MiniWM {
@@ -37,9 +64,21 @@ impl MiniWM {
             return Err(MiniWMError::DisplayNotFound(display_name.into()));
         }
         let windows = BTreeSet::new();
-        Ok(MiniWM { display, windows })
+
+        let mut workspaces = BTreeMap::new();
+        let workspace = Rc::new(RefCell::new(Workspace::new(0)));
+        let current_workspace = Rc::clone(&workspace);
+        workspaces.insert(0, workspace);
+        Ok(MiniWM {
+            display,
+            windows,
+            workspaces,
+            current_workspace,
+            status_bar: 0,
+        })
     }
-    pub fn init(&self) -> Result<(), MiniWMError> {
+    pub fn init(&mut self) -> Result<(), MiniWMError> {
+        let (width, _) = self.get_screen_size()?;
         unsafe {
             xlib::XSelectInput(
                 self.display,
@@ -49,6 +88,21 @@ impl MiniWM {
                     | xlib::StructureNotifyMask
                     | xlib::EnterWindowMask,
             );
+
+            let window = xlib::XCreateSimpleWindow(
+                self.display,
+                xlib::XDefaultRootWindow(self.display),
+                0,
+                0,
+                width as u32,
+                20, //height
+                0,
+                xlib::XBlackPixel(self.display, 0),
+                xlib::XWhitePixel(self.display, 0),
+            );
+            xlib::XMapWindow(self.display, window);
+            self.status_bar = window;
+            println!("status {}", window);
         }
         Command::new("feh")
             .arg("--bg-scale")
@@ -56,6 +110,7 @@ impl MiniWM {
             .spawn() // Spawns the command as a new process.
             .expect("failed to execute process");
         self.grab_keys();
+        self.layout()?;
         Ok(())
     }
     pub fn run(&mut self) -> Result<(), MiniWMError> {
@@ -71,10 +126,9 @@ impl MiniWM {
                         self.remove_window(event)?;
                     }
                     xlib::KeyPress => {
-                        self.handle_keypress(event);
+                        self.handle_keypress(event)?;
                     }
                     xlib::EnterNotify => {
-                        println!("h {:?}", event);
                         self.focus_from_cursor(event);
                     }
                     xlib::ConfigureNotify => self.grab_keys(), //called when root window is changed by feh for example
@@ -92,19 +146,28 @@ impl MiniWM {
         println!("creating a window id  {}", event.window);
         unsafe { xlib::XMapRaised(self.display, event.window) };
         unsafe {
+            //focus newly created window
             xlib::XSetInputFocus(self.display, event.window, RevertToNone, CurrentTime);
         }
         unsafe {
+            //get event of pointer going inside the window
+            //to focus it
             xlib::XSelectInput(self.display, event.window, xlib::EnterWindowMask);
         }
-        self.windows.insert(event.window);
-        self.horizontal_layout()
+        self.current_workspace
+            .borrow_mut()
+            .add_window(event.window as Window);
+        self.windows.insert(event.window as Window);
+        self.layout()
     }
     fn remove_window(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
-        println!("removing a window");
         let event: xlib::XUnmapEvent = From::from(event);
+        println!("removing window {}", event.window);
+        self.current_workspace
+            .borrow_mut()
+            .remove_window(&event.window);
         self.windows.remove(&event.window);
-        self.horizontal_layout()
+        self.layout()
     }
 
     fn get_screen_size(&self) -> Result<(i16, i16), MiniWMError> {
@@ -121,20 +184,86 @@ impl MiniWM {
         }
     }
 
-    fn horizontal_layout(&self) -> Result<(), MiniWMError> {
-        if self.windows.is_empty() {
+    fn change_workspace(&mut self, wc_id: u32) -> Result<(), MiniWMError> {
+        self.current_workspace
+            .borrow()
+            .windows
+            .iter()
+            .for_each(|window| {
+                self.hide_window(*window);
+            });
+        let opt_ws = self.workspaces.get(&wc_id);
+        if let Some(ws) = opt_ws {
+            self.current_workspace = Rc::clone(&ws);
+        } else {
+            let workspace = Rc::new(RefCell::new(Workspace::new(wc_id)));
+            self.workspaces.insert(wc_id, Rc::clone(&workspace));
+            self.current_workspace = Rc::clone(&workspace);
+        }
+        println!("Switched to workspace {}", wc_id);
+        self.layout()
+    }
+
+    fn get_gc_window(&self, window: Window) -> *mut xlib::_XGC {
+        unsafe {
+            let gc = xlib::XCreateGC(self.display, window, 0, std::ptr::null_mut());
+            return gc;
+        }
+    }
+    fn draw_bar(&self) {
+        let (width, _) = self.get_screen_size().unwrap();
+        let gc = self.get_gc_window(self.status_bar);
+        let text = format!(
+            "Current workspace: {}",
+            self.current_workspace.borrow().id + 1
+        );
+        let c_text = &CString::new(text.clone()).unwrap();
+        unsafe {
+            //TODO: replace this with not ugly x11 fonts
+            let font =
+                CString::new("-misc-fixed-medium-r-semicondensed--13-120-75-75-c-60-iso8859-1")
+                    .unwrap();
+            let font_info: *mut XFontStruct = xlib::XLoadQueryFont(self.display, font.as_ptr());
+            if font_info == std::ptr::null_mut() {
+                println!("ERROR: font not found");
+                return;
+            }
+
+            xlib::XSetFont(self.display, gc, (*font_info).fid);
+            xlib::XSetForeground(self.display, gc, xlib::XWhitePixel(self.display, 0));
+            xlib::XFillRectangle(self.display, self.status_bar, gc, 0, 0, width as u32, 20);
+            xlib::XSetForeground(self.display, gc, xlib::XBlackPixel(self.display, 0));
+            XDrawString(
+                self.display,
+                self.status_bar,
+                gc,
+                10,
+                16,
+                c_text.as_ptr(),
+                text.len() as i32,
+            );
+        }
+    }
+    fn layout(&self) -> Result<(), MiniWMError> {
+        let ws = self.current_workspace.borrow();
+        if ws.windows.is_empty() {
+            self.draw_bar();
             return Ok(());
         }
+        let bar_size: i32 = 20;
         let (width, height) = self.get_screen_size()?;
-        let mut start = 0;
-        let h_gasp: i32 = 15;
+        let mut start = bar_size;
+        let height = height as i32 - bar_size;
+        let h_gasp: i32 = 0;
         let win_height =
-            (height as i32 - h_gasp * self.windows.len() as i32) / self.windows.len() as i32;
-        self.windows.iter().for_each(|window| {
+            (height as i32 - h_gasp * ws.windows.len() as i32) / ws.windows.len() as i32;
+        ws.windows.iter().for_each(|window| {
             self.move_window(*window, 0_i32, start);
             self.resize_window(*window, width as u32, win_height as u32);
+            self.show_window(*window);
             start += win_height + h_gasp;
         });
+        self.draw_bar();
         Ok(())
     }
 
@@ -146,7 +275,7 @@ impl MiniWM {
         unsafe { xlib::XResizeWindow(self.display, window, width, height) };
     }
 
-    fn handle_keypress(&self, event: xlib::XEvent) {
+    fn handle_keypress(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
         let event: xlib::XKeyEvent = From::from(event);
         if event.keycode == 36 {
             // ctrl+enter
@@ -155,11 +284,15 @@ impl MiniWM {
                 .spawn() // Spawns the command as a new process.
                 .expect("failed to execute process");
         }
+        if event.keycode >= 10 && event.keycode <= 19 {
+            let wc_id = event.keycode as u32 - 10;
+            self.change_workspace(wc_id)?;
+        }
         println!("got control+{}", event.keycode);
+        Ok(())
     }
 
     fn grab_keys(&self) {
-        println!("grabbing keys");
         unsafe {
             xlib::XGrabKey(
                 self.display,
@@ -175,9 +308,16 @@ impl MiniWM {
 
     fn focus_from_cursor(&self, event: xlib::XEvent) {
         let event: xlib::XEnterWindowEvent = From::from(event);
-        println!("focusing window {}", event.window);
         unsafe {
             xlib::XSetInputFocus(self.display, event.window, RevertToNone, CurrentTime);
         }
+    }
+
+    fn show_window(&self, window: u64) {
+        unsafe { xlib::XMapWindow(self.display, window) };
+    }
+    fn hide_window(&self, window: u64) {
+        println!("hiding window {}", window);
+        unsafe { xlib::XUnmapWindow(self.display, window) };
     }
 }

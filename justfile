@@ -1,2 +1,3 @@
 run:
-    startx ./xinitrc -- /usr/bin/Xephyr :100 -ac -screen 800x600 -host-cursor
+    cargo build
+    startx ./xinitrc -- /usr/bin/Xephyr :100 -ac -screen 960x540 -host-cursor
