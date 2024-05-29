@@ -3,7 +3,6 @@ use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     ffi::{CString, NulError},
-    fmt::format,
     mem::zeroed,
     process::Command,
     rc::Rc,
@@ -12,7 +11,7 @@ use std::{
 use thiserror::Error;
 use x11::{
     xinerama,
-    xlib::{self, CurrentTime, RevertToNone, XBlackPixel, XDrawString, XFontStruct},
+    xlib::{self, CurrentTime, RevertToNone, XDrawString, XFontStruct},
 };
 
 pub type Window = u64;
