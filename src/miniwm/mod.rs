@@ -8,6 +8,7 @@ use std::{
     rc::Rc,
 };
 
+use log::{debug, info, trace};
 use thiserror::Error;
 use x11::{
     xinerama,
@@ -77,8 +78,10 @@ impl MiniWM {
         })
     }
     pub fn init(&mut self) -> Result<(), MiniWMError> {
+        info!("initializing tdawm");
         let (width, _) = self.get_screen_size()?;
         unsafe {
+            trace!("getting inputs from x11");
             xlib::XSelectInput(
                 self.display,
                 xlib::XDefaultRootWindow(self.display),
@@ -88,6 +91,7 @@ impl MiniWM {
                     | xlib::EnterWindowMask,
             );
 
+            trace!("creating status bar");
             let window = xlib::XCreateSimpleWindow(
                 self.display,
                 xlib::XDefaultRootWindow(self.display),
@@ -103,17 +107,20 @@ impl MiniWM {
             self.status_bar = window;
             println!("status {}", window);
         }
+        trace!("setting background");
         Command::new("feh")
             .arg("--bg-scale")
             .arg("/usr/share/backgrounds/gruvbox/astronaut.jpg")
             .spawn() // Spawns the command as a new process.
             .expect("failed to execute process");
+        trace!("grabbing keys");
         self.grab_keys();
         self.layout()?;
         Ok(())
     }
     pub fn run(&mut self) -> Result<(), MiniWMError> {
         let mut event: xlib::XEvent = unsafe { zeroed() };
+        info!("waiting for events");
         loop {
             unsafe {
                 xlib::XNextEvent(self.display, &mut event);
@@ -132,7 +139,7 @@ impl MiniWM {
                     }
                     xlib::ConfigureNotify => self.grab_keys(), //called when root window is changed by feh for example
                     _ => {
-                        // println!("unknown event {:?}", event);
+                        debug!("unknown event {:?}", event);
                         continue;
                     }
                 }
@@ -142,7 +149,7 @@ impl MiniWM {
 
     fn create_window(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
         let event: xlib::XMapRequestEvent = From::from(event);
-        println!("creating a window id  {}", event.window);
+        info!("creating a window with id {}", event.window);
         unsafe { xlib::XMapRaised(self.display, event.window) };
         unsafe {
             //focus newly created window
@@ -161,7 +168,7 @@ impl MiniWM {
     }
     fn remove_window(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
         let event: xlib::XUnmapEvent = From::from(event);
-        println!("removing window {}", event.window);
+        info!("removing window with id {}", event.window);
         self.current_workspace
             .borrow_mut()
             .remove_window(&event.window);
@@ -199,7 +206,7 @@ impl MiniWM {
             self.workspaces.insert(wc_id, Rc::clone(&workspace));
             self.current_workspace = Rc::clone(&workspace);
         }
-        println!("Switched to workspace {}", wc_id);
+        info!("Switched to workspace {}", wc_id);
         self.layout()
     }
 
@@ -278,7 +285,7 @@ impl MiniWM {
         let event: xlib::XKeyEvent = From::from(event);
         if event.keycode == 36 {
             // ctrl+enter
-            println!("starting alacritty");
+            debug!("starting alacritty");
             Command::new("alacritty")
                 .spawn() // Spawns the command as a new process.
                 .expect("failed to execute process");
@@ -287,7 +294,16 @@ impl MiniWM {
             let wc_id = event.keycode as u32 - 10;
             self.change_workspace(wc_id)?;
         }
-        println!("got control+{}", event.keycode);
+        if event.keycode == 33 {
+            //ctrl+p
+            Command::new("rofi")
+                .arg("-show")
+                .arg("drun")
+                .arg("-show-icons")
+                .spawn() // Spawns the command as a new process.
+                .expect("failed to execute process");
+        }
+        debug!("got control+{}", event.keycode);
         Ok(())
     }
 
