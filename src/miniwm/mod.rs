@@ -12,7 +12,7 @@ use log::{debug, info, trace};
 use thiserror::Error;
 use x11::{
     xinerama,
-    xlib::{self, CurrentTime, RevertToNone, XDrawString, XFontStruct},
+    xlib::{self, CurrentTime, RevertToNone, RevertToParent, XDrawString, XFontStruct},
 };
 
 pub type Window = u64;
@@ -90,6 +90,12 @@ impl MiniWM {
                     | xlib::StructureNotifyMask
                     | xlib::EnterWindowMask,
             );
+
+            trace!("setting cursor");
+            //TODO: find this in x11 crate.
+            const XC_LEFT_PTR: u32 = 68; // Value for left_ptr cursor
+            let cursor = xlib::XCreateFontCursor(self.display, XC_LEFT_PTR);
+            xlib::XDefineCursor(self.display, xlib::XDefaultRootWindow(self.display), cursor);
 
             trace!("creating status bar");
             let window = xlib::XCreateSimpleWindow(
