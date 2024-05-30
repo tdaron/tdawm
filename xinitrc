@@ -1,1 +1,1 @@
-exec ./target/debug/miniwm
+exec ./target/debug/tdawm

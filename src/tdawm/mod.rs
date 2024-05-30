@@ -6,19 +6,21 @@ use std::{
     mem::zeroed,
     process::Command,
     rc::Rc,
+    thread::sleep_ms,
+    time::{self, Duration},
 };
 
 use log::{debug, info, trace};
 use thiserror::Error;
 use x11::{
     xinerama,
-    xlib::{self, CurrentTime, RevertToNone, RevertToParent, XDrawString, XFontStruct},
+    xlib::{self, CurrentTime, RevertToNone, XDrawString, XFontStruct},
 };
 
 pub type Window = u64;
 
 #[derive(Error, Debug)]
-pub enum MiniWMError {
+pub enum TDAWmError {
     #[error("display {0} not found")]
     DisplayNotFound(String),
     #[error("{0}")]
@@ -48,7 +50,7 @@ impl Workspace {
         self.windows.remove(window);
     }
 }
-pub struct MiniWM {
+pub struct TDAWm {
     display: *mut xlib::Display,
     windows: BTreeSet<Window>,
     workspaces: BTreeMap<u32, Rc<RefCell<Workspace>>>,
@@ -56,12 +58,12 @@ pub struct MiniWM {
     status_bar: Window,
 }
 
-impl MiniWM {
-    pub fn new(display_name: &str) -> Result<Self, MiniWMError> {
+impl TDAWm {
+    pub fn new(display_name: &str) -> Result<Self, TDAWmError> {
         let display: *mut xlib::Display =
             unsafe { xlib::XOpenDisplay(CString::new(display_name)?.as_ptr()) };
         if display.is_null() {
-            return Err(MiniWMError::DisplayNotFound(display_name.into()));
+            return Err(TDAWmError::DisplayNotFound(display_name.into()));
         }
         let windows = BTreeSet::new();
 
@@ -69,7 +71,7 @@ impl MiniWM {
         let workspace = Rc::new(RefCell::new(Workspace::new(0)));
         let current_workspace = Rc::clone(&workspace);
         workspaces.insert(0, workspace);
-        Ok(MiniWM {
+        Ok(TDAWm {
             display,
             windows,
             workspaces,
@@ -77,7 +79,7 @@ impl MiniWM {
             status_bar: 0,
         })
     }
-    pub fn init(&mut self) -> Result<(), MiniWMError> {
+    pub fn init(&mut self) -> Result<(), TDAWmError> {
         info!("initializing tdawm");
         let (width, _) = self.get_screen_size()?;
         unsafe {
@@ -124,7 +126,7 @@ impl MiniWM {
         self.layout()?;
         Ok(())
     }
-    pub fn run(&mut self) -> Result<(), MiniWMError> {
+    pub fn run(&mut self) -> Result<(), TDAWmError> {
         let mut event: xlib::XEvent = unsafe { zeroed() };
         info!("waiting for events");
         loop {
@@ -153,7 +155,7 @@ impl MiniWM {
         }
     }
 
-    fn create_window(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
+    fn create_window(&mut self, event: xlib::XEvent) -> Result<(), TDAWmError> {
         let event: xlib::XMapRequestEvent = From::from(event);
         info!("creating a window with id {}", event.window);
         unsafe { xlib::XMapRaised(self.display, event.window) };
@@ -172,7 +174,7 @@ impl MiniWM {
         self.windows.insert(event.window as Window);
         self.layout()
     }
-    fn remove_window(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
+    fn remove_window(&mut self, event: xlib::XEvent) -> Result<(), TDAWmError> {
         let event: xlib::XUnmapEvent = From::from(event);
         info!("removing window with id {}", event.window);
         self.current_workspace
@@ -182,7 +184,7 @@ impl MiniWM {
         self.layout()
     }
 
-    fn get_screen_size(&self) -> Result<(i16, i16), MiniWMError> {
+    fn get_screen_size(&self) -> Result<(i16, i16), TDAWmError> {
         unsafe {
             let mut num: i32 = 0;
             let screen_pointers = xinerama::XineramaQueryScreens(self.display, &mut num);
@@ -191,12 +193,12 @@ impl MiniWM {
             if let Some(screen) = screen {
                 Ok((screen.width, screen.height))
             } else {
-                Err(MiniWMError::ScreenNotFound)
+                Err(TDAWmError::ScreenNotFound)
             }
         }
     }
 
-    fn change_workspace(&mut self, wc_id: u32) -> Result<(), MiniWMError> {
+    fn change_workspace(&mut self, wc_id: u32) -> Result<(), TDAWmError> {
         self.current_workspace
             .borrow()
             .windows
@@ -256,7 +258,7 @@ impl MiniWM {
             );
         }
     }
-    fn layout(&self) -> Result<(), MiniWMError> {
+    fn layout(&self) -> Result<(), TDAWmError> {
         let ws = self.current_workspace.borrow();
         if ws.windows.is_empty() {
             self.draw_bar();
@@ -287,7 +289,7 @@ impl MiniWM {
         unsafe { xlib::XResizeWindow(self.display, window, width, height) };
     }
 
-    fn handle_keypress(&mut self, event: xlib::XEvent) -> Result<(), MiniWMError> {
+    fn handle_keypress(&mut self, event: xlib::XEvent) -> Result<(), TDAWmError> {
         let event: xlib::XKeyEvent = From::from(event);
         if event.keycode == 36 {
             // ctrl+enter
