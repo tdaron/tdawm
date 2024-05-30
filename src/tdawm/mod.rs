@@ -6,17 +6,16 @@ use std::{
     mem::zeroed,
     process::Command,
     rc::Rc,
-    thread::sleep_ms,
-    time::{self, Duration},
 };
 
+use crate::config;
+use execute::{shell, Execute};
 use log::{debug, info, trace};
 use thiserror::Error;
 use x11::{
     xinerama,
     xlib::{self, CurrentTime, RevertToNone, XDrawString, XFontStruct},
 };
-
 pub type Window = u64;
 
 #[derive(Error, Debug)]
@@ -56,10 +55,11 @@ pub struct TDAWm {
     workspaces: BTreeMap<u32, Rc<RefCell<Workspace>>>,
     current_workspace: Rc<RefCell<Workspace>>,
     status_bar: Window,
+    config: config::Config,
 }
 
 impl TDAWm {
-    pub fn new(display_name: &str) -> Result<Self, TDAWmError> {
+    pub fn new(display_name: &str, config: config::Config) -> Result<Self, TDAWmError> {
         let display: *mut xlib::Display =
             unsafe { xlib::XOpenDisplay(CString::new(display_name)?.as_ptr()) };
         if display.is_null() {
@@ -77,6 +77,7 @@ impl TDAWm {
             workspaces,
             current_workspace,
             status_bar: 0,
+            config,
         })
     }
     pub fn init(&mut self) -> Result<(), TDAWmError> {
@@ -115,12 +116,6 @@ impl TDAWm {
             self.status_bar = window;
             println!("status {}", window);
         }
-        trace!("setting background");
-        Command::new("feh")
-            .arg("--bg-scale")
-            .arg("/usr/share/backgrounds/gruvbox/astronaut.jpg")
-            .spawn() // Spawns the command as a new process.
-            .expect("failed to execute process");
         trace!("grabbing keys");
         self.grab_keys();
         self.layout()?;
