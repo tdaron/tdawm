@@ -5,11 +5,11 @@ use std::{
     ffi::{CString, NulError},
     mem::zeroed,
     process::Command,
+    ptr::null_mut,
     rc::Rc,
 };
 
 use crate::config;
-use execute::{shell, Execute};
 use log::{debug, info, trace};
 use thiserror::Error;
 use x11::{
@@ -26,6 +26,15 @@ pub enum TDAWmError {
     NulString(#[from] NulError),
     #[error("screen not found")]
     ScreenNotFound,
+}
+
+unsafe extern "C" fn error_handler(_: *mut xlib::Display, event: *mut xlib::XErrorEvent) -> i32 {
+    // Set the error flag if BadWindow error occurs
+    if (*event).error_code == xlib::BadWindow {
+        0
+    } else {
+        panic!("{:?}", event);
+    }
 }
 
 struct Workspace {
@@ -55,7 +64,7 @@ pub struct TDAWm {
     workspaces: BTreeMap<u32, Rc<RefCell<Workspace>>>,
     current_workspace: Rc<RefCell<Workspace>>,
     status_bar: Window,
-    config: config::Config,
+    _config: config::Config,
 }
 
 impl TDAWm {
@@ -77,7 +86,7 @@ impl TDAWm {
             workspaces,
             current_workspace,
             status_bar: 0,
-            config,
+            _config: config,
         })
     }
     pub fn init(&mut self) -> Result<(), TDAWmError> {
@@ -95,7 +104,8 @@ impl TDAWm {
             );
 
             trace!("setting cursor");
-            //TODO: find this in x11 crate.
+
+            // https://tronche.com/gui/x/xlib/appendix/b/
             const XC_LEFT_PTR: u32 = 68; // Value for left_ptr cursor
             let cursor = xlib::XCreateFontCursor(self.display, XC_LEFT_PTR);
             xlib::XDefineCursor(self.display, xlib::XDefaultRootWindow(self.display), cursor);
@@ -119,6 +129,10 @@ impl TDAWm {
         trace!("grabbing keys");
         self.grab_keys();
         self.layout()?;
+        trace!("setting error handler");
+        unsafe {
+            xlib::XSetErrorHandler(Some(error_handler));
+        }
         Ok(())
     }
     pub fn run(&mut self) -> Result<(), TDAWmError> {
@@ -314,8 +328,17 @@ impl TDAWm {
         unsafe {
             xlib::XGrabKey(
                 self.display,
-                xlib::AnyKey,
-                xlib::ControlMask,
+                xlib::XKeysymToKeycode(self.display, x11::keysym::XK_Return as u64) as i32,
+                xlib::Mod4Mask,
+                xlib::XDefaultRootWindow(self.display),
+                0,
+                xlib::GrabModeAsync,
+                xlib::GrabModeAsync,
+            );
+            xlib::XGrabKey(
+                self.display,
+                xlib::XKeysymToKeycode(self.display, x11::keysym::XK_P as u64) as i32,
+                xlib::Mod4Mask,
                 xlib::XDefaultRootWindow(self.display),
                 0,
                 xlib::GrabModeAsync,
@@ -325,8 +348,13 @@ impl TDAWm {
     }
 
     fn focus_from_cursor(&self, event: xlib::XEvent) {
-        let event: xlib::XEnterWindowEvent = From::from(event);
+        let mut event: xlib::XEnterWindowEvent = From::from(event);
         unsafe {
+            let mut window_attributes: xlib::XWindowAttributes = std::mem::zeroed();
+            let r = xlib::XGetWindowAttributes(self.display, event.window, &mut window_attributes);
+            if r == xlib::BadWindow.into() {
+                event.window = xlib::XDefaultRootWindow(self.display);
+            }
             xlib::XSetInputFocus(self.display, event.window, RevertToNone, CurrentTime);
         }
     }

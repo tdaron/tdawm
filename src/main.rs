@@ -1,6 +1,5 @@
-use std::error::Error;
+use std::{error::Error, fs, path::Path};
 
-use env_logger::Env;
 use execute::{shell, Execute};
 use log::{error, trace};
 
@@ -10,8 +9,15 @@ mod config;
 mod tdawm;
 
 fn main() {
-    let env = Env::default().filter_or("LOG_LEVEL", "info");
-    env_logger::init_from_env(env);
+    let path = Path::new("/tmp/tdawm_log.txt");
+    if path.exists() {
+        fs::remove_file(path).unwrap();
+    }
+    let _log2 = log2::open(path.to_str().unwrap())
+        .module(true)
+        .tee(true)
+        .rotate(5)
+        .start();
     if let Err(e) = run() {
         error!("{}", e);
     }
