@@ -5,12 +5,11 @@ use std::{
     ffi::{CString, NulError},
     mem::zeroed,
     process::Command,
-    ptr::null_mut,
     rc::Rc,
 };
 
 use crate::config;
-use log::{debug, info, trace};
+use log::{debug, error, info, trace};
 use thiserror::Error;
 use x11::{
     xinerama,
@@ -31,6 +30,7 @@ pub enum TDAWmError {
 unsafe extern "C" fn error_handler(_: *mut xlib::Display, event: *mut xlib::XErrorEvent) -> i32 {
     // Set the error flag if BadWindow error occurs
     if (*event).error_code == xlib::BadWindow {
+        error!("bad window");
         0
     } else {
         panic!("{:?}", event);
@@ -58,6 +58,15 @@ impl Workspace {
         self.windows.remove(window);
     }
 }
+
+#[derive(Debug)]
+struct Screen {
+    width: i16,
+    height: i16,
+    x: i16,
+    y: i16,
+}
+
 pub struct TDAWm {
     display: *mut xlib::Display,
     windows: BTreeSet<Window>,
@@ -65,6 +74,8 @@ pub struct TDAWm {
     current_workspace: Rc<RefCell<Workspace>>,
     status_bar: Window,
     _config: config::Config,
+    screens: Vec<Screen>,
+    current_screen: usize,
 }
 
 impl TDAWm {
@@ -87,11 +98,12 @@ impl TDAWm {
             current_workspace,
             status_bar: 0,
             _config: config,
+            screens: vec![],
+            current_screen: 0,
         })
     }
     pub fn init(&mut self) -> Result<(), TDAWmError> {
         info!("initializing tdawm");
-        let (width, _) = self.get_screen_size()?;
         unsafe {
             trace!("getting inputs from x11");
             xlib::XSelectInput(
@@ -103,6 +115,8 @@ impl TDAWm {
                     | xlib::EnterWindowMask,
             );
 
+            trace!("loading screens");
+            self.load_screens();
             trace!("setting cursor");
 
             // https://tronche.com/gui/x/xlib/appendix/b/
@@ -110,7 +124,10 @@ impl TDAWm {
             let cursor = xlib::XCreateFontCursor(self.display, XC_LEFT_PTR);
             xlib::XDefineCursor(self.display, xlib::XDefaultRootWindow(self.display), cursor);
 
+            trace!("grabbing keys");
+            self.grab_keys();
             trace!("creating status bar");
+            let (width, _) = self.get_screen_size(0)?;
             let window = xlib::XCreateSimpleWindow(
                 self.display,
                 xlib::XDefaultRootWindow(self.display),
@@ -125,15 +142,27 @@ impl TDAWm {
             xlib::XMapWindow(self.display, window);
             self.status_bar = window;
             println!("status {}", window);
-        }
-        trace!("grabbing keys");
-        self.grab_keys();
-        self.layout()?;
-        trace!("setting error handler");
-        unsafe {
+            self.layout()?;
+            trace!("setting error handler");
             xlib::XSetErrorHandler(Some(error_handler));
         }
         Ok(())
+    }
+    fn load_screens(&mut self) {
+        let mut num: i32 = 0;
+        unsafe {
+            let screen_pointers = xinerama::XineramaQueryScreens(self.display, &mut num);
+            let screens = slice::from_raw_parts(screen_pointers, num as usize).to_vec();
+            for screen in screens.iter() {
+                self.screens.push(Screen {
+                    width: screen.width,
+                    height: screen.height,
+                    x: screen.x_org,
+                    y: screen.y_org,
+                });
+                trace!("screen: {:?}", self.screens.last().unwrap());
+            }
+        }
     }
     pub fn run(&mut self) -> Result<(), TDAWmError> {
         let mut event: xlib::XEvent = unsafe { zeroed() };
@@ -193,17 +222,12 @@ impl TDAWm {
         self.layout()
     }
 
-    fn get_screen_size(&self) -> Result<(i16, i16), TDAWmError> {
-        unsafe {
-            let mut num: i32 = 0;
-            let screen_pointers = xinerama::XineramaQueryScreens(self.display, &mut num);
-            let screens = slice::from_raw_parts(screen_pointers, num as usize).to_vec();
-            let screen = screens.get(0); // get the first screen. No multi display yet.
-            if let Some(screen) = screen {
-                Ok((screen.width, screen.height))
-            } else {
-                Err(TDAWmError::ScreenNotFound)
-            }
+    fn get_screen_size(&self, screen_id: usize) -> Result<(i16, i16), TDAWmError> {
+        let screen = self.screens.get(screen_id); // get the first screen. No multi display yet.
+        if let Some(screen) = screen {
+            Ok((screen.width, screen.height))
+        } else {
+            Err(TDAWmError::ScreenNotFound)
         }
     }
 
@@ -234,7 +258,7 @@ impl TDAWm {
         }
     }
     fn draw_bar(&self) {
-        let (width, _) = self.get_screen_size().unwrap();
+        let (width, _) = self.get_screen_size(0).unwrap();
         let gc = self.get_gc_window(self.status_bar);
         let text = format!(
             "Current workspace: {}",
@@ -268,24 +292,26 @@ impl TDAWm {
         }
     }
     fn layout(&self) -> Result<(), TDAWmError> {
-        let ws = self.current_workspace.borrow();
-        if ws.windows.is_empty() {
-            self.draw_bar();
-            return Ok(());
+        if let Some(screen) = self.screens.get(self.current_screen) {
+            let ws = self.current_workspace.borrow();
+            if ws.windows.is_empty() {
+                self.draw_bar();
+                return Ok(());
+            }
+            let bar_size: i32 = 20;
+            let (width, height) = self.get_screen_size(0)?;
+            let mut start = bar_size;
+            let height = height as i32 - bar_size;
+            let h_gasp: i32 = 0;
+            let win_height =
+                (height as i32 - h_gasp * ws.windows.len() as i32) / ws.windows.len() as i32;
+            ws.windows.iter().for_each(|window| {
+                self.move_window(*window, screen.x as i32, screen.y as i32 + start);
+                self.resize_window(*window, width as u32, win_height as u32);
+                self.show_window(*window);
+                start += win_height + h_gasp;
+            });
         }
-        let bar_size: i32 = 20;
-        let (width, height) = self.get_screen_size()?;
-        let mut start = bar_size;
-        let height = height as i32 - bar_size;
-        let h_gasp: i32 = 0;
-        let win_height =
-            (height as i32 - h_gasp * ws.windows.len() as i32) / ws.windows.len() as i32;
-        ws.windows.iter().for_each(|window| {
-            self.move_window(*window, 0_i32, start);
-            self.resize_window(*window, width as u32, win_height as u32);
-            self.show_window(*window);
-            start += win_height + h_gasp;
-        });
         self.draw_bar();
         Ok(())
     }
@@ -320,6 +346,16 @@ impl TDAWm {
                 .spawn() // Spawns the command as a new process.
                 .expect("failed to execute process");
         }
+        if event.keycode == 45 {
+            //ctrl+k
+            self.current_screen = (self.current_screen + 1) % self.screens.len();
+            info!(
+                "switched to screen {}/{}",
+                self.current_screen + 1,
+                self.screens.len()
+            );
+            self.layout()?;
+        }
         debug!("got control+{}", event.keycode);
         Ok(())
     }
@@ -328,8 +364,9 @@ impl TDAWm {
         unsafe {
             xlib::XGrabKey(
                 self.display,
-                xlib::XKeysymToKeycode(self.display, x11::keysym::XK_Return as u64) as i32,
-                xlib::Mod4Mask,
+                // xlib::XKeysymToKeycode(self.display, x11::keysym::XK_Return as u64) as i32,
+                xlib::AnyKey,
+                xlib::ControlMask,
                 xlib::XDefaultRootWindow(self.display),
                 0,
                 xlib::GrabModeAsync,
@@ -338,7 +375,7 @@ impl TDAWm {
             xlib::XGrabKey(
                 self.display,
                 xlib::XKeysymToKeycode(self.display, x11::keysym::XK_P as u64) as i32,
-                xlib::Mod4Mask,
+                xlib::ControlMask,
                 xlib::XDefaultRootWindow(self.display),
                 0,
                 xlib::GrabModeAsync,
