@@ -76,6 +76,7 @@ pub struct TDAWm {
     _config: config::Config,
     screens: Vec<Screen>,
     current_screen: usize,
+    modifier: u32,
 }
 
 impl TDAWm {
@@ -100,7 +101,13 @@ impl TDAWm {
             _config: config,
             screens: vec![],
             current_screen: 0,
+            modifier: xlib::Mod4Mask,
         })
+    }
+    pub fn set_modifier_to_control(&mut self) {
+        self.ungrab_keys();
+        self.modifier = xlib::ControlMask;
+        self.grab_keys();
     }
     pub fn init(&mut self) -> Result<(), TDAWmError> {
         info!("initializing tdawm");
@@ -366,7 +373,7 @@ impl TDAWm {
                 self.display,
                 // xlib::XKeysymToKeycode(self.display, x11::keysym::XK_Return as u64) as i32,
                 xlib::AnyKey,
-                xlib::ControlMask,
+                self.modifier,
                 xlib::XDefaultRootWindow(self.display),
                 0,
                 xlib::GrabModeAsync,
@@ -375,7 +382,7 @@ impl TDAWm {
             xlib::XGrabKey(
                 self.display,
                 xlib::XKeysymToKeycode(self.display, x11::keysym::XK_P as u64) as i32,
-                xlib::ControlMask,
+                self.modifier,
                 xlib::XDefaultRootWindow(self.display),
                 0,
                 xlib::GrabModeAsync,
@@ -402,5 +409,17 @@ impl TDAWm {
     fn hide_window(&self, window: u64) {
         println!("hiding window {}", window);
         unsafe { xlib::XUnmapWindow(self.display, window) };
+    }
+
+    fn ungrab_keys(&self) {
+        unsafe {
+            let r = xlib::XUngrabKey(
+                self.display,
+                xlib::AnyKey,
+                self.modifier,
+                xlib::XDefaultRootWindow(self.display),
+            );
+            info!("r: {}", r);
+        }
     }
 }

@@ -1,4 +1,4 @@
-use std::{error::Error, fs, path::Path};
+use std::{env, error::Error, fs, path::Path};
 
 use execute::{shell, Execute};
 use log::{error, trace};
@@ -34,6 +34,9 @@ fn run() -> Result<(), Box<dyn Error>> {
     }
     let mut wm = TDAWm::new(&display_name, user_config)?;
     wm.init()?;
+    if let Ok(_) = env::var("XEPHYR") {
+        wm.set_modifier_to_control();
+    }
     wm.run()?;
     Ok(())
 }

@@ -22,7 +22,7 @@ pub struct Config {
 pub fn load_config() -> Result<Config, ConfigError> {
     let home_dir = match env::var("HOME") {
         Ok(home_dir) => home_dir,
-        Err(e) => return Err(ConfigError::HomeNotDefined),
+        Err(_e) => return Err(ConfigError::HomeNotDefined),
     };
 
     let config_path: PathBuf = [home_dir.as_str(), ".config", "tdawm", "tdawm.toml"]
