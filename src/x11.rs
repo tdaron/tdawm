@@ -50,6 +50,7 @@ impl X11Adapter {
         event
     }
     pub fn grab_key(&self, keycode: tdawm::Keycode, modifier: u32) {
+        trace!("grabbing key {} with modifier {}", keycode, modifier);
         unsafe {
             xlib::XGrabKey(
                 self.display,
@@ -64,6 +65,7 @@ impl X11Adapter {
     }
 
     pub fn ungrab_key(&self, keycode: tdawm::Keycode, modifier: u32) {
+        trace!("ungrabbing key {} with modifier {}", keycode, modifier);
         unsafe {
             xlib::XUngrabKey(
                 self.display,
@@ -74,6 +76,7 @@ impl X11Adapter {
         }
     }
     pub fn focus_window(&self, window: Window) {
+        trace!("focusing window {} events", window);
         unsafe {
             xlib::XSetInputFocus(self.display, window, xlib::RevertToNone, xlib::CurrentTime);
         }
@@ -85,6 +88,7 @@ impl X11Adapter {
         }
     }
     pub fn grab_window_enter_event(&self, window: Window) {
+        trace!("grabbing window {} events", window);
         unsafe {
             xlib::XSelectInput(self.display, window, xlib::EnterWindowMask);
         }
