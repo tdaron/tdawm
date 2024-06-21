@@ -1,15 +1,26 @@
+use core::slice;
 use std::{
     ffi::{CString, NulError},
     mem::zeroed,
 };
 
-use log::trace;
+use log::{info, trace};
 use thiserror::Error;
-use x11::xlib;
+use x11::{xinerama, xlib};
 
 use crate::tdawm::{self, Window};
+
+#[derive(Debug)]
+pub struct Screen {
+    pub width: u32,
+    pub height: u32,
+    pub x: i16,
+    pub y: i16,
+}
+
 pub struct X11Adapter {
     display: *mut xlib::Display,
+    pub screens: Vec<Screen>,
 }
 #[derive(Debug, Error)]
 pub enum X11Error {
@@ -26,10 +37,13 @@ impl X11Adapter {
         if display.is_null() {
             return Err(X11Error::DisplayNotFound(display_name.into()));
         }
-        Ok(X11Adapter { display })
+        Ok(X11Adapter {
+            display,
+            screens: vec![],
+        })
     }
-    pub fn init(&self) {
-        trace!("registering to x11 as a window manager");
+    pub fn init(&mut self) {
+        info!("registering to x11 as a window manager");
         unsafe {
             // https://tronche.com/gui/x/xlib/event-handling/XSelectInput.html
             xlib::XSelectInput(
@@ -41,6 +55,7 @@ impl X11Adapter {
                     | xlib::EnterWindowMask,
             );
         }
+        self.load_screens();
     }
     pub fn next_event(&self) -> xlib::XEvent {
         let mut event: xlib::XEvent = unsafe { zeroed() };
@@ -76,7 +91,7 @@ impl X11Adapter {
         }
     }
     pub fn focus_window(&self, window: Window) {
-        trace!("focusing window {} events", window);
+        trace!("focusing window {}", window);
         unsafe {
             xlib::XSetInputFocus(self.display, window, xlib::RevertToNone, xlib::CurrentTime);
         }
@@ -91,6 +106,32 @@ impl X11Adapter {
         trace!("grabbing window {} events", window);
         unsafe {
             xlib::XSelectInput(self.display, window, xlib::EnterWindowMask);
+        }
+    }
+    pub fn move_window(&self, window: Window, x: i32, y: i32) {
+        trace!("moving window {} to ({}, {})", window, x, y);
+        unsafe { xlib::XMoveWindow(self.display, window, x, y) };
+    }
+
+    pub fn resize_window(&self, window: Window, width: u32, height: u32) {
+        trace!("resizing window {} to {}x{}", window, width, height);
+        unsafe { xlib::XResizeWindow(self.display, window, width, height) };
+    }
+    pub fn load_screens(&mut self) {
+        info!("loading screens");
+        let mut num: i32 = 0;
+        unsafe {
+            let screen_pointers = xinerama::XineramaQueryScreens(self.display, &mut num);
+            let screens = slice::from_raw_parts(screen_pointers, num as usize).to_vec();
+            for screen in screens.iter() {
+                self.screens.push(Screen {
+                    width: screen.width as u32,
+                    height: screen.height as u32,
+                    x: screen.x_org,
+                    y: screen.y_org,
+                });
+                trace!("found screen: {:?}", self.screens.last().unwrap());
+            }
         }
     }
 }

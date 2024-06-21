@@ -1,7 +1,7 @@
 use std::{error::Error, fs, path::Path};
 
 use execute::{shell, Execute};
-use log::{error, trace};
+use log::{error, info, trace};
 
 use crate::tdawm::TDAWm;
 
@@ -27,9 +27,9 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let display_name = std::env::var("DISPLAY")?;
     let user_config: config::Config = config::load_config()?;
-    trace!("running startup");
+    info!("running startup");
     for cmd in user_config.startup.iter() {
-        trace!("executing {}", cmd);
+        info!("executing {}", cmd);
         let mut command = shell(cmd);
         command.execute()?;
     }
