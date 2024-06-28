@@ -67,8 +67,13 @@ impl TDAWm {
                     let event: xlib::XEnterWindowEvent = From::from(event);
                     self.server.focus_window(event.window)
                 }
+                xlib::ClientMessage => {
+                    let _event: xlib::XClientMessageEvent = From::from(event);
+                    //TODO: Handle EWMH
+                }
+
                 _ => {
-                    // debug!("unknown event {:?}", event);
+                    debug!("unknown event {:?}", event);
                     continue;
                 }
             }
