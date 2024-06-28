@@ -1,11 +1,12 @@
 use std::{error::Error, fs, path::Path};
 
 use execute::{shell, Execute};
-use log::{error, info, trace};
+use log::{error, info};
 
 use crate::tdawm::TDAWm;
 
 mod config;
+mod layouts;
 mod tdawm;
 mod workspace;
 mod x11;

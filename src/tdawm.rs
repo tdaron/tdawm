@@ -1,10 +1,13 @@
-use crate::config;
+use crate::layouts::HorizontalLayout;
+use crate::layouts::Layout;
+use crate::layouts::VerticalLayout;
 use crate::workspace::Workspace;
 use crate::x11;
 use ::x11::xlib;
 use log::error;
 use log::trace;
 use log::{debug, info};
+use std::any::Any;
 use std::{cell::RefCell, process::Command, rc::Rc};
 use thiserror::Error;
 
@@ -17,10 +20,11 @@ pub enum TDAWmError {
 pub type Window = u64;
 pub type Keycode = i32;
 pub struct TDAWm {
-    server: x11::X11Adapter,
+    pub server: x11::X11Adapter,
     // Using a RefCell is necessary as Workspace can be mutable.
-    workspaces: Vec<Rc<RefCell<Workspace>>>,
-    current_workspace: Rc<RefCell<Workspace>>,
+    pub workspaces: Vec<Rc<RefCell<Workspace>>>,
+    pub current_workspace: Rc<RefCell<Workspace>>,
+    current_layout: Box<dyn Layout>,
 }
 impl TDAWm {
     pub fn new(mut server: x11::X11Adapter) -> Result<TDAWm, TDAWmError> {
@@ -37,6 +41,7 @@ impl TDAWm {
             server,
             workspaces,
             current_workspace,
+            current_layout: Box::new(crate::layouts::HorizontalLayout::init()),
         };
         Ok(t)
     }
@@ -100,7 +105,17 @@ impl TDAWm {
     fn handle_keypress(&mut self, event: xlib::XEvent) -> Result<(), TDAWmError> {
         // converting event to good type
         let event: xlib::XKeyEvent = From::from(event);
-
+        trace!("keypress: {}", event.keycode);
+        // layout switch on ctrl+p
+        // for debug purposes right now.
+        if event.keycode == 33 {
+            if self.current_layout.id() == "horizontal" {
+                self.current_layout = Box::new(VerticalLayout::init());
+            } else {
+                self.current_layout = Box::new(HorizontalLayout::init());
+            }
+            self.layout()?;
+        }
         if event.keycode == 36 {
             //enter
             debug!("starting alacritty");
@@ -118,32 +133,11 @@ impl TDAWm {
         Ok(())
     }
     fn layout(&mut self) -> Result<(), TDAWmError> {
-        trace!("computing layout..");
-        let screen = self
-            .server
-            .screens
-            .first()
-            .ok_or_else(|| TDAWmError::NoScreenFound)?;
-
-        let ws = self.current_workspace.borrow();
-        let length = ws.windows.len() as u32;
-        if length == 0 {
-            // not any windows
-            return Ok(());
-        }
-        // Each window will get 100%/nbr of windows width and 100% height
-        let window_width = screen.width / length;
-        for (i, window) in ws.windows.iter().enumerate() {
-            self.server
-                .resize_window(*window, window_width, screen.height);
-            self.server.move_window(
-                *window,
-                screen.x as i32 + window_width as i32 * i as i32,
-                screen.y as i32,
-            );
-            self.server.show_window(*window);
-        }
-        Ok(())
+        self.current_layout.layout(
+            &mut self.server,
+            &mut self.current_workspace,
+            &mut self.workspaces,
+        )
     }
     fn switch_workspace(&mut self, index: usize) -> Result<(), TDAWmError> {
         for window in self.current_workspace.borrow().windows.iter() {
