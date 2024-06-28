@@ -7,6 +7,7 @@ use crate::tdawm::TDAWm;
 
 mod config;
 mod tdawm;
+mod workspace;
 mod x11;
 
 fn main() {
@@ -34,7 +35,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         command.execute()?;
     }
     let adapter = x11::X11Adapter::new(&display_name)?;
-    let mut wm = TDAWm::new(adapter, user_config)?;
+    let mut wm = TDAWm::new(adapter)?;
     // if let Ok(_) = env::var("XEPHYR") {
     //     // wm.set_modifier_to_control();
     // }

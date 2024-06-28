@@ -117,6 +117,9 @@ impl X11Adapter {
         trace!("resizing window {} to {}x{}", window, width, height);
         unsafe { xlib::XResizeWindow(self.display, window, width, height) };
     }
+    pub fn hide_window(&self, window: Window) {
+        unsafe { xlib::XUnmapWindow(self.display, window) };
+    }
     pub fn load_screens(&mut self) {
         info!("loading screens");
         let mut num: i32 = 0;
@@ -133,5 +136,9 @@ impl X11Adapter {
                 trace!("found screen: {:?}", self.screens.last().unwrap());
             }
         }
+    }
+
+    pub fn show_window(&self, window: Window) {
+        unsafe { xlib::XMapWindow(self.display, window) };
     }
 }
