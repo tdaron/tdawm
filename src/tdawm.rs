@@ -7,6 +7,7 @@ use crate::layouts::Layout;
 use crate::layouts::VerticalLayout;
 use crate::workspace::Workspace;
 use crate::x11;
+use crate::x11::EWMH;
 use ::x11::xlib;
 use log::error;
 use log::trace;
@@ -146,7 +147,20 @@ impl TDAWm {
             &mut self.server,
             &mut self.current_workspace,
             &mut self.workspaces,
-        )
+        )?;
+        // EWMH compliance. Windows can ask to be always on top
+        // for example.
+        // https://specifications.freedesktop.org/wm-spec/1.3/ar01s05.html
+        for window in self.current_workspace.borrow().windows.iter() {
+            match window.get_window_type(&mut self.server) {
+                // Dock windows should always be on top
+                x11::WindowType::Dock => {
+                    self.server.put_window_on_top(*window);
+                }
+                _ => {}
+            }
+        }
+        Ok(())
     }
     fn switch_workspace(&mut self, index: usize) -> Result<(), TDAWmError> {
         for window in self.current_workspace.borrow().windows.iter() {

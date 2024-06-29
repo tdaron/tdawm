@@ -1,12 +1,17 @@
 use core::slice;
 use std::{
-    ffi::{CString, NulError},
+    collections::HashMap,
+    ffi::{c_long, c_uchar, CString, NulError},
     mem::zeroed,
+    ptr,
 };
 
-use log::{info, trace};
+use log::{error, info, trace};
 use thiserror::Error;
-use x11::{xinerama, xlib};
+use x11::{
+    xinerama,
+    xlib::{self, Atom},
+};
 
 use crate::tdawm::{self, Window};
 
@@ -21,6 +26,7 @@ pub struct Screen {
 pub struct X11Adapter {
     display: *mut xlib::Display,
     pub screens: Vec<Screen>,
+    atom_manager: AtomManager,
 }
 #[derive(Debug, Error)]
 pub enum X11Error {
@@ -31,7 +37,7 @@ pub enum X11Error {
 }
 
 impl X11Adapter {
-    pub fn new(display_name: &str) -> Result<Self, X11Error> {
+    pub fn new(display_name: &str) -> Result<X11Adapter, X11Error> {
         let display: *mut xlib::Display =
             unsafe { xlib::XOpenDisplay(CString::new(display_name)?.as_ptr()) };
         if display.is_null() {
@@ -40,6 +46,7 @@ impl X11Adapter {
         Ok(X11Adapter {
             display,
             screens: vec![],
+            atom_manager: AtomManager::new(),
         })
     }
     pub fn init(&mut self) {
@@ -141,15 +148,13 @@ impl X11Adapter {
     pub fn show_window(&self, window: Window) {
         unsafe { xlib::XMapWindow(self.display, window) };
     }
-    pub fn ewmh_set_current_desktop(&self, index: usize) {
+    pub fn ewmh_set_current_desktop(&mut self, index: usize) {
         let data: u32 = index as u32;
         let format = 32;
         unsafe {
-            let prop = xlib::XInternAtom(
-                self.display,
-                "_NET_CURRENT_DESKTOP\0".as_ptr() as *const i8,
-                0,
-            );
+            let prop = self
+                .atom_manager
+                .get_atom("_NET_CURRENT_DESKTOP", self.display);
             xlib::XChangeProperty(
                 self.display,
                 xlib::XDefaultRootWindow(self.display),
@@ -160,6 +165,81 @@ impl X11Adapter {
                 &data as *const u32 as *const u8,
                 1,
             );
+        }
+    }
+}
+
+pub enum WindowType {
+    Normal,
+    Dock,
+}
+
+pub trait EWMH {
+    fn get_window_type(&self, server: &mut X11Adapter) -> WindowType;
+}
+
+impl EWMH for Window {
+    fn get_window_type(&self, server: &mut X11Adapter) -> WindowType {
+        let mut actual_type_return: Atom = 0;
+        let mut actual_format_return: i32 = 0;
+        let mut nitems_return: u64 = 0;
+        let mut bytes_after_return: u64 = 0;
+        let mut prop_return: *mut c_uchar = ptr::null_mut();
+        let window_type: i64;
+        unsafe {
+            let net_wm_window_type_atom = server
+                .atom_manager
+                .get_atom("_NET_WM_WINDOW_TYPE", server.display);
+
+            // window_type = 1;
+            if xlib::XGetWindowProperty(
+                server.display,
+                *self,
+                net_wm_window_type_atom,
+                0,
+                1,
+                0,
+                xlib::AnyPropertyType as u64,
+                &mut actual_type_return,
+                &mut actual_format_return,
+                &mut nitems_return,
+                &mut bytes_after_return,
+                &mut prop_return,
+            ) != xlib::Success as i32
+            {
+                return WindowType::Normal;
+            }
+            window_type = *(prop_return as *const c_long);
+            let net_wm_window_dock_atom = server
+                .atom_manager
+                .get_atom("_NET_WM_WINDOW_TYPE_DOCK", server.display);
+
+            if window_type as u64 == net_wm_window_dock_atom {
+                return WindowType::Dock;
+            }
+            return WindowType::Normal;
+        }
+    }
+}
+
+struct AtomManager {
+    atoms: HashMap<&'static str, u64>,
+}
+
+impl AtomManager {
+    fn new() -> AtomManager {
+        AtomManager {
+            atoms: HashMap::new(),
+        }
+    }
+    fn get_atom(&mut self, name: &'static str, display: *mut xlib::_XDisplay) -> u64 {
+        if self.atoms.contains_key(name) {
+            return *self.atoms.get(name).unwrap();
+        }
+        unsafe {
+            let atom = xlib::XInternAtom(display, format!("{}\0", name).as_ptr() as *const i8, 0);
+            self.atoms.insert(name, atom);
+            return atom;
         }
     }
 }
