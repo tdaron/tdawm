@@ -13,8 +13,8 @@ use x11::{
     xlib::{self, Atom},
 };
 
-use crate::tdawm::Window;
 use crate::tdawm::{self, WindowType};
+use crate::tdawm::{Window, WindowId};
 #[derive(Debug)]
 pub struct Screen {
     pub width: u32,
@@ -99,44 +99,44 @@ impl X11Adapter {
             );
         }
     }
-    pub fn focus_window(&self, window: &Window) {
-        trace!("focusing window {}", window.id);
+    pub fn focus_window(&self, window_id: WindowId) {
+        trace!("focusing window {}", window_id);
         unsafe {
             xlib::XSetInputFocus(
                 self.display,
-                window.id,
+                window_id,
                 xlib::RevertToNone,
                 xlib::CurrentTime,
             );
         }
     }
-    pub fn put_window_on_top(&self, window: &Window) {
-        trace!("putting window {} on top", window.id);
+    pub fn put_window_on_top(&self, window_id: WindowId) {
+        trace!("putting window {} on top", window_id);
         unsafe {
-            xlib::XMapRaised(self.display, window.id);
+            xlib::XMapRaised(self.display, window_id);
         }
     }
-    pub fn grab_window_events(&self, window: &Window) {
-        trace!("grabbing window {} events", window.id);
+    pub fn grab_window_events(&self, window_id: WindowId) {
+        trace!("grabbing window {} events", window_id);
         unsafe {
             xlib::XSelectInput(
                 self.display,
-                window.id,
+                window_id,
                 xlib::EnterWindowMask | xlib::PropertyChangeMask,
             );
         }
     }
-    pub fn move_window(&self, window: &Window, x: i32, y: i32) {
-        trace!("moving window {} to ({}, {})", window.id, x, y);
-        unsafe { xlib::XMoveWindow(self.display, window.id, x, y) };
+    pub fn move_window(&self, window_id: WindowId, x: i32, y: i32) {
+        trace!("moving window {} to ({}, {})", window_id, x, y);
+        unsafe { xlib::XMoveWindow(self.display, window_id, x, y) };
     }
 
-    pub fn resize_window(&self, window: &Window, width: u32, height: u32) {
-        trace!("resizing window {} to {}x{}", window.id, width, height);
-        unsafe { xlib::XResizeWindow(self.display, window.id, width, height) };
+    pub fn resize_window(&self, window_id: WindowId, width: u32, height: u32) {
+        trace!("resizing window {} to {}x{}", window_id, width, height);
+        unsafe { xlib::XResizeWindow(self.display, window_id, width, height) };
     }
-    pub fn hide_window(&self, window: &Window) {
-        unsafe { xlib::XUnmapWindow(self.display, window.id) };
+    pub fn hide_window(&self, window_id: WindowId) {
+        unsafe { xlib::XUnmapWindow(self.display, window_id) };
     }
     pub fn load_screens(&mut self) {
         info!("loading screens");
@@ -156,8 +156,8 @@ impl X11Adapter {
         }
     }
 
-    pub fn show_window(&self, window: &Window) {
-        unsafe { xlib::XMapWindow(self.display, window.id) };
+    pub fn show_window(&self, window_id: WindowId) {
+        unsafe { xlib::XMapWindow(self.display, window_id) };
     }
     pub fn ewmh_set_current_desktop(&mut self, index: usize) {
         let data: u32 = index as u32;

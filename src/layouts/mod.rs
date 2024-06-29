@@ -1,6 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::{tdawm::TDAWmError, tdawm::Workspace, x11::X11Adapter};
+use crate::{
+    tdawm::TDAWmError,
+    tdawm::{Window, WindowId, Workspace},
+    x11::X11Adapter,
+};
 
 mod horizontal;
 pub use horizontal::*;
@@ -14,5 +18,6 @@ pub trait Layout {
         server: &mut X11Adapter,
         current_workspace: &mut Rc<RefCell<Workspace>>,
         workspaces: &mut Vec<Rc<RefCell<Workspace>>>,
+        windows_by_id: &mut HashMap<WindowId, Window>,
     ) -> Result<(), TDAWmError>;
 }

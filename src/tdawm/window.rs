@@ -1,3 +1,12 @@
+pub type WindowId = u64;
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Window {
+    pub id: WindowId,
+    pub fixed_position: Option<Position>,
+    pub fixed_size: Option<Size>,
+    pub window_type: WindowType,
+}
 #[derive(Debug, Clone, Copy)]
 pub struct Position {
     pub x: i32,
@@ -9,20 +18,11 @@ pub struct Size {
     pub y: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Window {
-    pub id: u64,
-    pub fixed_position: Option<Position>,
-    pub fixed_size: Option<Size>,
-    pub window_type: WindowType,
-}
 impl From<u64> for Window {
     fn from(value: u64) -> Self {
         Self {
             id: value,
-            fixed_position: None,
-            fixed_size: None,
-            window_type: WindowType::Normal,
+            ..Default::default()
         }
     }
 }
@@ -43,8 +43,9 @@ impl std::cmp::PartialOrd for Window {
 }
 
 impl std::cmp::Eq for Window {}
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum WindowType {
+    #[default]
     Normal,
     Dock,
 }
