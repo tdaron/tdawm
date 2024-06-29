@@ -1,7 +1,7 @@
 use core::slice;
 use std::{
     collections::HashMap,
-    ffi::{c_long, c_uchar, CString, NulError},
+    ffi::{c_long, c_uchar, CStr, CString, NulError},
     mem::zeroed,
     ptr,
 };
@@ -13,8 +13,8 @@ use x11::{
     xlib::{self, Atom},
 };
 
-use crate::tdawm;
 use crate::tdawm::Window;
+use crate::tdawm::{self, WindowType};
 #[derive(Debug)]
 pub struct Screen {
     pub width: u32,
@@ -24,9 +24,9 @@ pub struct Screen {
 }
 
 pub struct X11Adapter {
-    display: *mut xlib::Display,
+    pub display: *mut xlib::Display,
     pub screens: Vec<Screen>,
-    atom_manager: AtomManager,
+    pub atom_manager: AtomManager,
 }
 #[derive(Debug, Error)]
 pub enum X11Error {
@@ -43,10 +43,12 @@ impl X11Adapter {
         if display.is_null() {
             return Err(X11Error::DisplayNotFound(display_name.into()));
         }
+        let am = AtomManager::new();
+
         Ok(X11Adapter {
             display,
             screens: vec![],
-            atom_manager: AtomManager::new(),
+            atom_manager: am,
         })
     }
     pub fn init(&mut self) {
@@ -114,10 +116,14 @@ impl X11Adapter {
             xlib::XMapRaised(self.display, window.id);
         }
     }
-    pub fn grab_window_enter_event(&self, window: &Window) {
+    pub fn grab_window_events(&self, window: &Window) {
         trace!("grabbing window {} events", window.id);
         unsafe {
-            xlib::XSelectInput(self.display, window.id, xlib::EnterWindowMask);
+            xlib::XSelectInput(
+                self.display,
+                window.id,
+                xlib::EnterWindowMask | xlib::PropertyChangeMask,
+            );
         }
     }
     pub fn move_window(&self, window: &Window, x: i32, y: i32) {
@@ -174,11 +180,6 @@ impl X11Adapter {
     }
 }
 
-pub enum WindowType {
-    Normal,
-    Dock,
-}
-
 pub trait EWMH {
     fn get_window_type(&self, server: &mut X11Adapter) -> WindowType;
 }
@@ -227,7 +228,7 @@ impl EWMH for Window {
     }
 }
 
-struct AtomManager {
+pub struct AtomManager {
     atoms: HashMap<&'static str, u64>,
 }
 
@@ -237,7 +238,7 @@ impl AtomManager {
             atoms: HashMap::new(),
         }
     }
-    fn get_atom(&mut self, name: &'static str, display: *mut xlib::_XDisplay) -> u64 {
+    pub fn get_atom(&mut self, name: &'static str, display: *mut xlib::_XDisplay) -> u64 {
         if self.atoms.contains_key(name) {
             return *self.atoms.get(name).unwrap();
         }
@@ -245,6 +246,13 @@ impl AtomManager {
             let atom = xlib::XInternAtom(display, format!("{}\0", name).as_ptr() as *const i8, 0);
             self.atoms.insert(name, atom);
             return atom;
+        }
+    }
+    pub fn identify(&self, atom: u64, display: *mut xlib::_XDisplay) -> &'static str {
+        unsafe {
+            let val = xlib::XGetAtomName(display, atom);
+            let c_str = CStr::from_ptr(val);
+            return c_str.to_str().unwrap();
         }
     }
 }

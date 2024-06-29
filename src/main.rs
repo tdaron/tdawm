@@ -17,7 +17,7 @@ fn main() {
     let _log2 = log2::open(path.to_str().unwrap())
         .module(true)
         .tee(true)
-        .level(Level::Info)
+        .level(Level::Debug)
         .rotate(5)
         .start();
     if let Err(e) = run() {

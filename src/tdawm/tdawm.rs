@@ -2,12 +2,14 @@
 // EWMH are some hints for status bar for example.
 // https://en.wikipedia.org/wiki/Extended_Window_Manager_Hints
 
-use super::Vec2;
+use super::Position;
+use super::Size;
 use super::Window;
 use super::Workspace;
 use crate::layouts::HorizontalLayout;
 use crate::layouts::Layout;
 use crate::layouts::VerticalLayout;
+use crate::tdawm::WindowType;
 use crate::x11;
 use crate::x11::EWMH;
 use ::x11::xlib;
@@ -31,12 +33,12 @@ pub struct TDAWm {
     current_layout: Box<dyn Layout>,
 }
 impl TDAWm {
-    fn find_window(&self, id: u64) -> Option<(Window, &Rc<RefCell<Workspace>>)> {
+    fn find_window(&self, id: u64) -> Option<(Window, Rc<RefCell<Workspace>>)> {
         let mut re = None;
         self.workspaces.iter().find(|e| {
             let v = e.borrow_mut();
             if let Some(w) = v.windows.iter().find(|w| w.id == id) {
-                re = Some((w.clone(), e.clone()));
+                re = Some((w.clone(), Rc::clone(e)));
                 return true;
             }
             false
@@ -66,7 +68,7 @@ impl TDAWm {
         loop {
             let event = self.server.next_event();
             match event.get_type() {
-                // Window created
+                // Window showed
                 xlib::MapRequest => {
                     self.register_window(event)?;
                 }
@@ -85,8 +87,34 @@ impl TDAWm {
                     self.server.focus_window(&event.window.into())
                 }
                 xlib::ClientMessage => {
-                    let _event: xlib::XClientMessageEvent = From::from(event);
-                    //TODO: Handle EWMH
+                    let event: xlib::XClientMessageEvent = From::from(event);
+                    debug!(
+                        "Got client message {} from window {}",
+                        self.server
+                            .atom_manager
+                            .identify(event.message_type, self.server.display),
+                        event.window
+                    );
+                }
+                xlib::PropertyNotify => {
+                    let event: xlib::XPropertyEvent = From::from(event);
+                    self.load_window_properties(event.window);
+                }
+                xlib::ConfigureRequest => {
+                    error!("received configure request event {:?}", event);
+                    let event: xlib::XConfigureRequestEvent = From::from(event);
+                    if let Some((mut window, workspace)) = self.find_window(event.window) {
+                        window.fixed_position = Some(Position {
+                            x: event.x,
+                            y: event.y,
+                        });
+                        window.fixed_size = Some(Size {
+                            x: event.width as u32,
+                            y: event.height as u32,
+                        });
+                        workspace.borrow_mut().update_window(window);
+                        self.layout()?;
+                    }
                 }
                 _ => {
                     debug!("unknown event {:?}", event);
@@ -104,14 +132,17 @@ impl TDAWm {
         self.server.put_window_on_top(&event.window.into());
         self.server.focus_window(&event.window.into());
 
+        self.current_workspace
+            .borrow_mut()
+            .add_window(event.window.into());
+
         // ask x11 to send event when a cursor enter a window.
         // (we have to ask x11 to send us events we want)
         // then, theses focus events (for all windows) will be treated in run
         // main loop to automatically focus whichever window your cursor is on
-        self.server.grab_window_enter_event(&event.window.into());
-        self.current_workspace
-            .borrow_mut()
-            .add_window(event.window.into());
+        self.server.grab_window_events(&event.window.into());
+
+        self.load_window_properties(event.window);
         self.layout()?;
         Ok(())
     }
@@ -155,7 +186,17 @@ impl TDAWm {
         }
         Ok(())
     }
+
+    fn load_window_properties(&mut self, window_id: u64) {
+        if let Some((mut window, workspace)) = self.find_window(window_id) {
+            let window_type = window.get_window_type(&mut self.server);
+            window.window_type = window_type;
+            workspace.borrow_mut().update_window(window);
+        }
+    }
+
     fn layout(&mut self) -> Result<(), TDAWmError> {
+        error!("LAYOUT");
         self.current_layout.layout(
             &mut self.server,
             &mut self.current_workspace,
@@ -165,12 +206,17 @@ impl TDAWm {
         // for example.
         // https://specifications.freedesktop.org/wm-spec/1.3/ar01s05.html
         for window in self.current_workspace.borrow().windows.iter() {
-            if let Some(p) = window.fixed_position {
-                self.server.move_window(window, p.x, p.y);
-            }
-            match window.get_window_type(&mut self.server) {
-                // Dock windows should always be on top
-                x11::WindowType::Dock => {
+            match window.window_type {
+                WindowType::Dock => {
+                    // A dock window can be placed without respecting tiling.
+                    if let Some(p) = window.fixed_position {
+                        self.server.move_window(window, p.x, p.y);
+                    }
+                    if let Some(s) = window.fixed_size {
+                        self.server.resize_window(window, s.x, s.y);
+                    }
+
+                    // Dock windows should always be on top
                     self.server.put_window_on_top(window);
                 }
                 _ => {}

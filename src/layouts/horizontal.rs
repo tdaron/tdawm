@@ -2,7 +2,11 @@ use std::{cell::RefCell, rc::Rc};
 
 use log::trace;
 
-use crate::{tdawm::TDAWmError, tdawm::Workspace, x11::X11Adapter};
+use crate::{
+    tdawm::TDAWmError,
+    tdawm::{WindowType, Workspace},
+    x11::X11Adapter,
+};
 
 use super::Layout;
 
@@ -28,7 +32,11 @@ impl Layout for HorizontalLayout {
             .ok_or_else(|| TDAWmError::NoScreenFound)?;
 
         let ws = current_workspace.borrow();
-        let length = ws.windows.len() as u32;
+        let length = ws
+            .windows
+            .iter()
+            .filter(|w| !matches!(w.window_type, WindowType::Dock))
+            .count() as u32;
         if length == 0 {
             // not any windows
             return Ok(());
@@ -36,6 +44,9 @@ impl Layout for HorizontalLayout {
         // Each window will get 100%/nbr of windows width and 100% height
         let window_width = screen.width / length;
         for (i, window) in ws.windows.iter().enumerate() {
+            if matches!(window.window_type, WindowType::Dock) {
+                continue;
+            }
             server.resize_window(window, window_width, screen.height);
             server.move_window(
                 window,

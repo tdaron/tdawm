@@ -1,14 +1,20 @@
 #[derive(Debug, Clone, Copy)]
-pub struct Vec2 {
+pub struct Position {
     pub x: i32,
     pub y: i32,
+}
+#[derive(Debug, Clone, Copy)]
+pub struct Size {
+    pub x: u32,
+    pub y: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Window {
     pub id: u64,
-    pub fixed_position: Option<Vec2>,
-    pub fixed_size: Option<Vec2>,
+    pub fixed_position: Option<Position>,
+    pub fixed_size: Option<Size>,
+    pub window_type: WindowType,
 }
 impl From<u64> for Window {
     fn from(value: u64) -> Self {
@@ -16,6 +22,7 @@ impl From<u64> for Window {
             id: value,
             fixed_position: None,
             fixed_size: None,
+            window_type: WindowType::Normal,
         }
     }
 }
@@ -36,3 +43,8 @@ impl std::cmp::PartialOrd for Window {
 }
 
 impl std::cmp::Eq for Window {}
+#[derive(Debug, Clone, Copy)]
+pub enum WindowType {
+    Normal,
+    Dock,
+}
