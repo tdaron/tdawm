@@ -36,13 +36,13 @@ impl Layout for VerticalLayout {
         // Each window will get 100%/nbr of windows height and 100% width
         let window_height = screen.height / length;
         for (i, window) in ws.windows.iter().enumerate() {
-            server.resize_window(*window, screen.width, window_height);
+            server.resize_window(window, screen.width, window_height);
             server.move_window(
-                *window,
+                window,
                 screen.x as i32,
                 screen.y as i32 + window_height as i32 * i as i32,
             );
-            server.show_window(*window);
+            server.show_window(window);
         }
 
         Ok(())

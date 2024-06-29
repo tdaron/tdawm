@@ -97,7 +97,7 @@ impl X11Adapter {
             );
         }
     }
-    pub fn focus_window(&self, window: Window) {
+    pub fn focus_window(&self, window: &Window) {
         trace!("focusing window {}", window.id);
         unsafe {
             xlib::XSetInputFocus(
@@ -108,28 +108,28 @@ impl X11Adapter {
             );
         }
     }
-    pub fn put_window_on_top(&self, window: Window) {
+    pub fn put_window_on_top(&self, window: &Window) {
         trace!("putting window {} on top", window.id);
         unsafe {
             xlib::XMapRaised(self.display, window.id);
         }
     }
-    pub fn grab_window_enter_event(&self, window: Window) {
+    pub fn grab_window_enter_event(&self, window: &Window) {
         trace!("grabbing window {} events", window.id);
         unsafe {
             xlib::XSelectInput(self.display, window.id, xlib::EnterWindowMask);
         }
     }
-    pub fn move_window(&self, window: Window, x: i32, y: i32) {
+    pub fn move_window(&self, window: &Window, x: i32, y: i32) {
         trace!("moving window {} to ({}, {})", window.id, x, y);
         unsafe { xlib::XMoveWindow(self.display, window.id, x, y) };
     }
 
-    pub fn resize_window(&self, window: Window, width: u32, height: u32) {
+    pub fn resize_window(&self, window: &Window, width: u32, height: u32) {
         trace!("resizing window {} to {}x{}", window.id, width, height);
         unsafe { xlib::XResizeWindow(self.display, window.id, width, height) };
     }
-    pub fn hide_window(&self, window: Window) {
+    pub fn hide_window(&self, window: &Window) {
         unsafe { xlib::XUnmapWindow(self.display, window.id) };
     }
     pub fn load_screens(&mut self) {
@@ -150,7 +150,7 @@ impl X11Adapter {
         }
     }
 
-    pub fn show_window(&self, window: Window) {
+    pub fn show_window(&self, window: &Window) {
         unsafe { xlib::XMapWindow(self.display, window.id) };
     }
     pub fn ewmh_set_current_desktop(&mut self, index: usize) {

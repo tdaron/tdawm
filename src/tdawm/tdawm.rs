@@ -2,6 +2,8 @@
 // EWMH are some hints for status bar for example.
 // https://en.wikipedia.org/wiki/Extended_Window_Manager_Hints
 
+use super::Vec2;
+use super::Window;
 use super::Workspace;
 use crate::layouts::HorizontalLayout;
 use crate::layouts::Layout;
@@ -29,6 +31,18 @@ pub struct TDAWm {
     current_layout: Box<dyn Layout>,
 }
 impl TDAWm {
+    fn find_window(&self, id: u64) -> Option<(Window, &Rc<RefCell<Workspace>>)> {
+        let mut re = None;
+        self.workspaces.iter().find(|e| {
+            let v = e.borrow_mut();
+            if let Some(w) = v.windows.iter().find(|w| w.id == id) {
+                re = Some((w.clone(), e.clone()));
+                return true;
+            }
+            false
+        });
+        re
+    }
     pub fn new(mut server: x11::X11Adapter) -> Result<TDAWm, TDAWmError> {
         server.init();
         server.grab_key(xlib::AnyKey, xlib::ControlMask);
@@ -68,13 +82,12 @@ impl TDAWm {
                 // When cursor enters a window
                 xlib::EnterNotify => {
                     let event: xlib::XEnterWindowEvent = From::from(event);
-                    self.server.focus_window(event.window.into())
+                    self.server.focus_window(&event.window.into())
                 }
                 xlib::ClientMessage => {
                     let _event: xlib::XClientMessageEvent = From::from(event);
                     //TODO: Handle EWMH
                 }
-
                 _ => {
                     debug!("unknown event {:?}", event);
                     continue;
@@ -88,14 +101,14 @@ impl TDAWm {
         let event: xlib::XMapRequestEvent = From::from(event);
         info!("registering new window with id {}", event.window);
 
-        self.server.put_window_on_top(event.window.into());
-        self.server.focus_window(event.window.into());
+        self.server.put_window_on_top(&event.window.into());
+        self.server.focus_window(&event.window.into());
 
         // ask x11 to send event when a cursor enter a window.
         // (we have to ask x11 to send us events we want)
         // then, theses focus events (for all windows) will be treated in run
         // main loop to automatically focus whichever window your cursor is on
-        self.server.grab_window_enter_event(event.window.into());
+        self.server.grab_window_enter_event(&event.window.into());
         self.current_workspace
             .borrow_mut()
             .add_window(event.window.into());
@@ -152,10 +165,13 @@ impl TDAWm {
         // for example.
         // https://specifications.freedesktop.org/wm-spec/1.3/ar01s05.html
         for window in self.current_workspace.borrow().windows.iter() {
+            if let Some(p) = window.fixed_position {
+                self.server.move_window(window, p.x, p.y);
+            }
             match window.get_window_type(&mut self.server) {
                 // Dock windows should always be on top
                 x11::WindowType::Dock => {
-                    self.server.put_window_on_top(*window);
+                    self.server.put_window_on_top(window);
                 }
                 _ => {}
             }
@@ -164,7 +180,7 @@ impl TDAWm {
     }
     fn switch_workspace(&mut self, index: usize) -> Result<(), TDAWmError> {
         for window in self.current_workspace.borrow().windows.iter() {
-            self.server.hide_window(*window);
+            self.server.hide_window(window);
         }
         if let Some(ws) = self.workspaces.get(index) {
             self.current_workspace = ws.clone();

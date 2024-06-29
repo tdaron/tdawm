@@ -1,10 +1,22 @@
 #[derive(Debug, Clone, Copy)]
+pub struct Vec2 {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct Window {
     pub id: u64,
+    pub fixed_position: Option<Vec2>,
+    pub fixed_size: Option<Vec2>,
 }
 impl From<u64> for Window {
     fn from(value: u64) -> Self {
-        Self { id: value }
+        Self {
+            id: value,
+            fixed_position: None,
+            fixed_size: None,
+        }
     }
 }
 impl std::cmp::Ord for Window {

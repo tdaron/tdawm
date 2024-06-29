@@ -1,7 +1,7 @@
 use std::{error::Error, fs, path::Path};
 
 use execute::{shell, Execute};
-use log::{error, info};
+use log::{error, info, Level};
 
 use crate::tdawm::TDAWm;
 
@@ -17,6 +17,7 @@ fn main() {
     let _log2 = log2::open(path.to_str().unwrap())
         .module(true)
         .tee(true)
+        .level(Level::Info)
         .rotate(5)
         .start();
     if let Err(e) = run() {

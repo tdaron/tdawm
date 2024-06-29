@@ -36,13 +36,13 @@ impl Layout for HorizontalLayout {
         // Each window will get 100%/nbr of windows width and 100% height
         let window_width = screen.width / length;
         for (i, window) in ws.windows.iter().enumerate() {
-            server.resize_window(*window, window_width, screen.height);
+            server.resize_window(window, window_width, screen.height);
             server.move_window(
-                *window,
+                window,
                 screen.x as i32 + window_width as i32 * i as i32,
                 screen.y as i32,
             );
-            server.show_window(*window);
+            server.show_window(window);
         }
 
         Ok(())
