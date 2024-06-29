@@ -141,4 +141,25 @@ impl X11Adapter {
     pub fn show_window(&self, window: Window) {
         unsafe { xlib::XMapWindow(self.display, window) };
     }
+    pub fn ewmh_set_current_desktop(&self, index: usize) {
+        let data: u32 = index as u32;
+        let format = 32;
+        unsafe {
+            let prop = xlib::XInternAtom(
+                self.display,
+                "_NET_CURRENT_DESKTOP\0".as_ptr() as *const i8,
+                0,
+            );
+            xlib::XChangeProperty(
+                self.display,
+                xlib::XDefaultRootWindow(self.display),
+                prop,
+                xlib::XA_CARDINAL,
+                format,
+                xlib::PropModeReplace,
+                &data as *const u32 as *const u8,
+                1,
+            );
+        }
+    }
 }

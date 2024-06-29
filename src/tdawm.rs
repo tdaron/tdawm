@@ -1,3 +1,7 @@
+// Informations for a better code follow:
+// EWMH are some hints for status bar for example.
+// https://en.wikipedia.org/wiki/Extended_Window_Manager_Hints
+
 use crate::layouts::HorizontalLayout;
 use crate::layouts::Layout;
 use crate::layouts::VerticalLayout;
@@ -7,7 +11,6 @@ use ::x11::xlib;
 use log::error;
 use log::trace;
 use log::{debug, info};
-use std::any::Any;
 use std::{cell::RefCell, process::Command, rc::Rc};
 use thiserror::Error;
 
@@ -46,6 +49,7 @@ impl TDAWm {
         Ok(t)
     }
     pub fn run(&mut self) -> Result<(), TDAWmError> {
+        self.server.ewmh_set_current_desktop(0);
         loop {
             let event = self.server.next_event();
             match event.get_type() {
@@ -151,6 +155,7 @@ impl TDAWm {
         if let Some(ws) = self.workspaces.get(index) {
             self.current_workspace = ws.clone();
         }
+        self.server.ewmh_set_current_desktop(index);
         self.layout()
     }
 }
