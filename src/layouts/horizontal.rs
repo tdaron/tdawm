@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use log::trace;
 
-use crate::{tdawm::TDAWmError, workspace::Workspace, x11::X11Adapter};
+use crate::{tdawm::TDAWmError, tdawm::Workspace, x11::X11Adapter};
 
 use super::Layout;
 

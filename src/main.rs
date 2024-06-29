@@ -8,7 +8,6 @@ use crate::tdawm::TDAWm;
 mod config;
 mod layouts;
 mod tdawm;
-mod workspace;
 mod x11;
 fn main() {
     let path = Path::new("/tmp/tdawm_log.txt");

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::tdawm::Window;
+use super::Window;
 pub struct Workspace {
     // simple ordered set of windows
     pub windows: BTreeSet<Window>,

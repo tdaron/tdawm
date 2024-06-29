@@ -2,10 +2,10 @@
 // EWMH are some hints for status bar for example.
 // https://en.wikipedia.org/wiki/Extended_Window_Manager_Hints
 
+use super::Workspace;
 use crate::layouts::HorizontalLayout;
 use crate::layouts::Layout;
 use crate::layouts::VerticalLayout;
-use crate::workspace::Workspace;
 use crate::x11;
 use crate::x11::EWMH;
 use ::x11::xlib;
@@ -14,14 +14,12 @@ use log::trace;
 use log::{debug, info};
 use std::{cell::RefCell, process::Command, rc::Rc};
 use thiserror::Error;
-
 #[derive(Error, Debug)]
 pub enum TDAWmError {
     #[error("No screen")]
     NoScreenFound,
 }
 
-pub type Window = u64;
 pub type Keycode = i32;
 pub struct TDAWm {
     pub server: x11::X11Adapter,
@@ -70,7 +68,7 @@ impl TDAWm {
                 // When cursor enters a window
                 xlib::EnterNotify => {
                     let event: xlib::XEnterWindowEvent = From::from(event);
-                    self.server.focus_window(event.window)
+                    self.server.focus_window(event.window.into())
                 }
                 xlib::ClientMessage => {
                     let _event: xlib::XClientMessageEvent = From::from(event);
@@ -90,15 +88,17 @@ impl TDAWm {
         let event: xlib::XMapRequestEvent = From::from(event);
         info!("registering new window with id {}", event.window);
 
-        self.server.put_window_on_top(event.window);
-        self.server.focus_window(event.window);
+        self.server.put_window_on_top(event.window.into());
+        self.server.focus_window(event.window.into());
 
         // ask x11 to send event when a cursor enter a window.
         // (we have to ask x11 to send us events we want)
         // then, theses focus events (for all windows) will be treated in run
         // main loop to automatically focus whichever window your cursor is on
-        self.server.grab_window_enter_event(event.window);
-        self.current_workspace.borrow_mut().add_window(event.window);
+        self.server.grab_window_enter_event(event.window.into());
+        self.current_workspace
+            .borrow_mut()
+            .add_window(event.window.into());
         self.layout()?;
         Ok(())
     }
@@ -107,7 +107,7 @@ impl TDAWm {
         info!("unregistering new window with id {}", event.window);
         self.current_workspace
             .borrow_mut()
-            .remove_window(&event.window);
+            .remove_window(&event.window.into());
         self.layout()?;
         Ok(())
     }
