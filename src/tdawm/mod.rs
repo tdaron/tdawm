@@ -4,3 +4,5 @@ mod workspace;
 pub use workspace::*;
 mod window;
 pub use window::*;
+mod context;
+pub use context::*;

@@ -2,6 +2,7 @@
 // EWMH are some hints for status bar for example.
 // https://en.wikipedia.org/wiki/Extended_Window_Manager_Hints
 
+use super::Context;
 use super::Position;
 use super::Size;
 use super::Window;
@@ -12,13 +13,12 @@ use crate::layouts::Layout;
 use crate::layouts::VerticalLayout;
 use crate::tdawm::WindowType;
 use crate::x11;
-use crate::x11::EWMH;
 use ::x11::xlib;
 use log::error;
 use log::trace;
 use log::{debug, info};
 use std::collections::HashMap;
-use std::{cell::RefCell, process::Command, rc::Rc};
+use std::process::Command;
 use thiserror::Error;
 #[derive(Error, Debug)]
 pub enum TDAWmError {
@@ -27,13 +27,12 @@ pub enum TDAWmError {
 }
 
 pub type Keycode = i32;
+
 pub struct TDAWm {
     pub server: x11::X11Adapter,
     // Using a RefCell is necessary as Workspace can be mutable.
-    pub workspaces: Vec<Rc<RefCell<Workspace>>>,
-    pub current_workspace: Rc<RefCell<Workspace>>,
-    pub windows_by_id: HashMap<WindowId, Window>,
     current_layout: Box<dyn Layout>,
+    ctx: Context,
 }
 impl TDAWm {
     pub fn new(mut server: x11::X11Adapter) -> Result<TDAWm, TDAWmError> {
@@ -41,16 +40,16 @@ impl TDAWm {
         server.grab_key(xlib::AnyKey, xlib::ControlMask);
         let mut workspaces = Vec::new();
         for _ in 0..10 {
-            let workspace_ref = Rc::new(RefCell::new(Workspace::new()));
-            workspaces.push(workspace_ref.clone());
+            workspaces.push(Workspace::new());
         }
-        // we can unwrap as workspaces number (10) is static so a first will exist
-        let current_workspace = workspaces.first().unwrap().clone();
+        let context = Context {
+            workspaces,
+            current_workspace_id: 0,
+            windows_by_id: HashMap::new(),
+        };
         let t = TDAWm {
             server,
-            workspaces,
-            current_workspace,
-            windows_by_id: HashMap::new(),
+            ctx: context,
             current_layout: Box::new(crate::layouts::HorizontalLayout::init()),
         };
         Ok(t)
@@ -99,7 +98,8 @@ impl TDAWm {
                 xlib::ConfigureRequest => {
                     debug!("received configure request event {:?}", event);
                     let event: xlib::XConfigureRequestEvent = From::from(event);
-                    if let Some(window) = self.windows_by_id.get_mut(&event.window as &WindowId) {
+                    if let Some(window) = self.ctx.windows_by_id.get_mut(&event.window as &WindowId)
+                    {
                         window.fixed_position = Some(Position {
                             x: event.x,
                             y: event.y,
@@ -127,11 +127,14 @@ impl TDAWm {
         self.server.put_window_on_top(event.window as WindowId);
         self.server.focus_window(event.window as WindowId);
 
-        self.current_workspace
-            .borrow_mut()
+        self.ctx
+            .workspaces
+            .get_mut(self.ctx.current_workspace_id)
+            .unwrap()
             .add_window(event.window as WindowId);
 
-        self.windows_by_id
+        self.ctx
+            .windows_by_id
             .insert(event.window as WindowId, Into::<Window>::into(event.window));
         // ask x11 to send event when a cursor enter a window.
         // (we have to ask x11 to send us events we want)
@@ -146,10 +149,13 @@ impl TDAWm {
     fn unregister_window(&mut self, event: xlib::XEvent) -> Result<(), TDAWmError> {
         let event: xlib::XMapRequestEvent = From::from(event);
         info!("unregistering window with id {}", event.window);
-        self.current_workspace
-            .borrow_mut()
+        self.ctx
+            .workspaces
+            .get_mut(self.ctx.current_workspace_id)
+            .unwrap()
             .remove_window(&event.window.into());
-        self.windows_by_id.remove(&event.window as &WindowId);
+
+        self.ctx.windows_by_id.remove(&event.window as &WindowId);
         self.layout()?;
         Ok(())
     }
@@ -186,24 +192,27 @@ impl TDAWm {
     }
 
     fn load_window_properties(&mut self, window_id: WindowId) {
-        if let Some(window) = self.windows_by_id.get_mut(&window_id) {
+        if let Some(window) = self.ctx.windows_by_id.get_mut(&window_id) {
             let window_type = window.get_window_type(&mut self.server);
             window.window_type = window_type;
         }
     }
 
     fn layout(&mut self) -> Result<(), TDAWmError> {
-        self.current_layout.layout(
-            &mut self.server,
-            &mut self.current_workspace,
-            &mut self.workspaces,
-            &mut self.windows_by_id,
-        )?;
+        self.current_layout
+            .layout(&mut self.server, &mut self.ctx)?;
         // EWMH compliance. Windows can ask to be always on top
         // for example.
         // https://specifications.freedesktop.org/wm-spec/1.3/ar01s05.html
-        for window_id in self.current_workspace.borrow().windows.iter() {
-            let window = self.windows_by_id.get(window_id).unwrap();
+        for window_id in self
+            .ctx
+            .workspaces
+            .get_mut(self.ctx.current_workspace_id)
+            .unwrap()
+            .windows
+            .iter()
+        {
+            let window = self.ctx.windows_by_id.get(window_id).unwrap();
             match window.window_type {
                 WindowType::Dock => {
                     // A dock window can be placed without respecting tiling.
@@ -223,11 +232,18 @@ impl TDAWm {
         Ok(())
     }
     fn switch_workspace(&mut self, index: usize) -> Result<(), TDAWmError> {
-        for window_id in self.current_workspace.borrow().windows.iter() {
+        for window_id in self
+            .ctx
+            .workspaces
+            .get_mut(self.ctx.current_workspace_id)
+            .unwrap()
+            .windows
+            .iter()
+        {
             self.server.hide_window(*window_id);
         }
-        if let Some(ws) = self.workspaces.get(index) {
-            self.current_workspace = ws.clone();
+        if let Some(_ws) = self.ctx.workspaces.get(index) {
+            self.ctx.current_workspace_id = index;
         }
         self.server.ewmh_set_current_desktop(index);
         self.layout()

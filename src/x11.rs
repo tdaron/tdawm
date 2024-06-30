@@ -180,12 +180,9 @@ impl X11Adapter {
     }
 }
 
-pub trait EWMH {
-    fn get_window_type(&self, server: &mut X11Adapter) -> WindowType;
-}
-
-impl EWMH for Window {
-    fn get_window_type(&self, server: &mut X11Adapter) -> WindowType {
+// EWMH utilities functions
+impl Window {
+    pub fn get_window_type(&self, server: &mut X11Adapter) -> WindowType {
         let mut actual_type_return: Atom = 0;
         let mut actual_format_return: i32 = 0;
         let mut nitems_return: u64 = 0;
