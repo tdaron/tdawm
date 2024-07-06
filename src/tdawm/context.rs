@@ -6,4 +6,5 @@ pub struct Context {
     pub workspaces: Vec<Workspace>,
     pub current_workspace_id: usize,
     pub windows_by_id: HashMap<WindowId, Window>,
+    pub focused_window: WindowId,
 }

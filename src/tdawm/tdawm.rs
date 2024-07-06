@@ -79,7 +79,8 @@ impl TDAWm {
                 // When cursor enters a window
                 xlib::EnterNotify => {
                     let event: xlib::XEnterWindowEvent = From::from(event);
-                    self.server.focus_window(event.window)
+                    self.server.focus_window(event.window);
+                    self.ctx.focused_window = event.window as WindowId;
                 }
                 xlib::ClientMessage => {
                     let event: xlib::XClientMessageEvent = From::from(event);
