@@ -30,7 +30,6 @@ pub type Keycode = i32;
 
 pub struct TDAWm {
     pub server: x11::X11Adapter,
-    // Using a RefCell is necessary as Workspace can be mutable.
     current_layout: Box<dyn Layout>,
     ctx: Context,
 }
@@ -46,11 +45,12 @@ impl TDAWm {
             workspaces,
             current_workspace_id: 0,
             windows_by_id: HashMap::new(),
+            focused_window: 0,
         };
         let t = TDAWm {
             server,
             ctx: context,
-            current_layout: Box::new(crate::layouts::HorizontalLayout::init()),
+            current_layout: Box::new(crate::layouts::DWMLayout::init()),
         };
         Ok(t)
     }
@@ -144,6 +144,19 @@ impl TDAWm {
         self.server.grab_window_events(event.window as WindowId);
 
         self.load_window_properties(event.window);
+
+        // If the window is normal we shall set it
+        // as the new master
+        if matches!(
+            self.ctx
+                .windows_by_id
+                .get(&event.window)
+                .unwrap()
+                .window_type,
+            WindowType::Normal
+        ) {
+            self.current_layout.set_master(event.window);
+        }
         self.layout()?;
         Ok(())
     }
@@ -189,6 +202,11 @@ impl TDAWm {
             trace!("switching to workspace {}", wc_id);
             self.switch_workspace(wc_id as usize)?;
         }
+        if event.keycode == 47 {
+            // M
+            self.current_layout.set_master(self.ctx.focused_window);
+            self.layout()?;
+        }
         Ok(())
     }
 
@@ -216,7 +234,7 @@ impl TDAWm {
             let window = self.ctx.windows_by_id.get(window_id).unwrap();
             match window.window_type {
                 WindowType::Dock => {
-                    // A dock window can be placed without respecting tiling.
+                    // A dock window can be placed without respecting the layout.
                     if let Some(p) = window.fixed_position {
                         self.server.move_window(*window_id, p.x, p.y);
                     }
