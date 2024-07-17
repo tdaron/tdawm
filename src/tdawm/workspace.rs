@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use crate::tdawm::WindowType;
 
 use super::{Window, WindowId};
+#[derive(Debug)]
 pub struct Workspace {
     // simple ordered set of windows
     pub windows: BTreeSet<WindowId>,

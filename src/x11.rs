@@ -13,19 +13,11 @@ use x11::{
     xlib::{self, Atom},
 };
 
-use crate::tdawm::{self, WindowType};
+use crate::tdawm::{self, Screen, WindowType};
 use crate::tdawm::{Window, WindowId};
-#[derive(Debug)]
-pub struct Screen {
-    pub width: u32,
-    pub height: u32,
-    pub x: i16,
-    pub y: i16,
-}
 
 pub struct X11Adapter {
     pub display: *mut xlib::Display,
-    pub screens: Vec<Screen>,
     pub atom_manager: AtomManager,
 }
 #[derive(Debug, Error)]
@@ -47,11 +39,10 @@ impl X11Adapter {
 
         Ok(X11Adapter {
             display,
-            screens: vec![],
             atom_manager: am,
         })
     }
-    pub fn init(&mut self) {
+    pub fn init(&mut self) -> Vec<Screen> {
         info!("registering to x11 as a window manager");
         unsafe {
             // https://tronche.com/gui/x/xlib/event-handling/XSelectInput.html
@@ -64,7 +55,7 @@ impl X11Adapter {
                     | xlib::EnterWindowMask,
             );
         }
-        self.load_screens();
+        self.load_screens()
     }
     pub fn next_event(&self) -> xlib::XEvent {
         let mut event: xlib::XEvent = unsafe { zeroed() };
@@ -138,22 +129,24 @@ impl X11Adapter {
     pub fn hide_window(&self, window_id: WindowId) {
         unsafe { xlib::XUnmapWindow(self.display, window_id) };
     }
-    pub fn load_screens(&mut self) {
+    pub fn load_screens(&mut self) -> Vec<Screen> {
         info!("loading screens");
         let mut num: i32 = 0;
+        let mut screens: Vec<Screen> = vec![];
         unsafe {
             let screen_pointers = xinerama::XineramaQueryScreens(self.display, &mut num);
-            let screens = slice::from_raw_parts(screen_pointers, num as usize).to_vec();
-            for screen in screens.iter() {
-                self.screens.push(Screen {
-                    width: screen.width as u32,
-                    height: screen.height as u32,
-                    x: screen.x_org,
-                    y: screen.y_org,
-                });
-                trace!("found screen: {:?}", self.screens.last().unwrap());
+            let xinemara_screens = slice::from_raw_parts(screen_pointers, num as usize).to_vec();
+            for screen in xinemara_screens.iter() {
+                screens.push(Screen::new_screen(
+                    screen.width as u32,
+                    screen.height as u32,
+                    screen.x_org,
+                    screen.y_org,
+                ));
+                trace!("found screen: {:?}", screens.last().unwrap());
             }
         }
+        screens
     }
 
     pub fn show_window(&self, window_id: WindowId) {

@@ -8,9 +8,7 @@ use super::Size;
 use super::Window;
 use super::WindowId;
 use super::Workspace;
-use crate::layouts::HorizontalLayout;
-use crate::layouts::Layout;
-use crate::layouts::VerticalLayout;
+use crate::layouts::*;
 use crate::tdawm::WindowType;
 use crate::x11;
 use ::x11::xlib;
@@ -35,17 +33,16 @@ pub struct TDAWm {
 }
 impl TDAWm {
     pub fn new(mut server: x11::X11Adapter) -> Result<TDAWm, TDAWmError> {
-        server.init();
+        let screens = server.init();
         server.grab_key(xlib::AnyKey, xlib::ControlMask);
         let mut workspaces = Vec::new();
         for _ in 0..10 {
             workspaces.push(Workspace::new());
         }
         let context = Context {
-            workspaces,
-            current_workspace_id: 0,
+            screens,
             windows_by_id: HashMap::new(),
-            focused_window: 0,
+            focused_screen: 0,
         };
         let t = TDAWm {
             server,
@@ -79,8 +76,17 @@ impl TDAWm {
                 // When cursor enters a window
                 xlib::EnterNotify => {
                     let event: xlib::XEnterWindowEvent = From::from(event);
-                    self.server.focus_window(event.window);
-                    self.ctx.focused_window = event.window as WindowId;
+                    if let Some((i, screen)) = self
+                        .ctx
+                        .screens
+                        .iter_mut()
+                        .enumerate()
+                        .find(|(i, screen)| screen.has_window_visible(event.window))
+                    {
+                        screen.focused_window = event.window;
+                        self.server.focus_window(event.window);
+                        self.ctx.focused_screen = i;
+                    }
                 }
                 xlib::ClientMessage => {
                     let event: xlib::XClientMessageEvent = From::from(event);
@@ -129,9 +135,8 @@ impl TDAWm {
         self.server.focus_window(event.window as WindowId);
 
         self.ctx
-            .workspaces
-            .get_mut(self.ctx.current_workspace_id)
-            .unwrap()
+            .focused_screen_mut()
+            .current_workspace_mut()
             .add_window(event.window as WindowId);
 
         self.ctx
@@ -164,10 +169,9 @@ impl TDAWm {
         let event: xlib::XMapRequestEvent = From::from(event);
         info!("unregistering window with id {}", event.window);
         self.ctx
-            .workspaces
-            .get_mut(self.ctx.current_workspace_id)
-            .unwrap()
-            .remove_window(&event.window.into());
+            .focused_screen_mut()
+            .current_workspace_mut()
+            .remove_window(&event.window);
 
         self.ctx.windows_by_id.remove(&event.window as &WindowId);
         self.layout()?;
@@ -202,11 +206,6 @@ impl TDAWm {
             trace!("switching to workspace {}", wc_id);
             self.switch_workspace(wc_id as usize)?;
         }
-        if event.keycode == 47 {
-            // M
-            self.current_layout.set_master(self.ctx.focused_window);
-            self.layout()?;
-        }
         Ok(())
     }
 
@@ -220,17 +219,12 @@ impl TDAWm {
     fn layout(&mut self) -> Result<(), TDAWmError> {
         self.current_layout
             .layout(&mut self.server, &mut self.ctx)?;
+
+        //TODO: Fix this for multi screen compliance
         // EWMH compliance. Windows can ask to be always on top
         // for example.
         // https://specifications.freedesktop.org/wm-spec/1.3/ar01s05.html
-        for window_id in self
-            .ctx
-            .workspaces
-            .get_mut(self.ctx.current_workspace_id)
-            .unwrap()
-            .windows
-            .iter()
-        {
+        for window_id in self.ctx.focused_screen().current_workspace().windows.iter() {
             let window = self.ctx.windows_by_id.get(window_id).unwrap();
             match window.window_type {
                 WindowType::Dock => {
@@ -251,18 +245,11 @@ impl TDAWm {
         Ok(())
     }
     fn switch_workspace(&mut self, index: usize) -> Result<(), TDAWmError> {
-        for window_id in self
-            .ctx
-            .workspaces
-            .get_mut(self.ctx.current_workspace_id)
-            .unwrap()
-            .windows
-            .iter()
-        {
+        for window_id in self.ctx.focused_screen().current_workspace().windows.iter() {
             self.server.hide_window(*window_id);
         }
-        if let Some(_ws) = self.ctx.workspaces.get(index) {
-            self.ctx.current_workspace_id = index;
+        if let Some(_ws) = self.ctx.focused_screen().workspaces.get(index) {
+            self.ctx.focused_screen_mut().current_workspace_id = index;
         }
         self.server.ewmh_set_current_desktop(index);
         self.layout()

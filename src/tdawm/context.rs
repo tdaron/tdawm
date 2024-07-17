@@ -1,10 +1,18 @@
 use std::collections::HashMap;
 
-use super::{Window, WindowId, Workspace};
+use super::{Screen, Window, WindowId};
 
 pub struct Context {
-    pub workspaces: Vec<Workspace>,
-    pub current_workspace_id: usize,
+    pub screens: Vec<Screen>,
     pub windows_by_id: HashMap<WindowId, Window>,
-    pub focused_window: WindowId,
+    pub focused_screen: usize,
+}
+
+impl Context {
+    pub fn focused_screen_mut(&mut self) -> &mut Screen {
+        self.screens.get_mut(self.focused_screen).unwrap()
+    }
+    pub fn focused_screen(&self) -> &Screen {
+        self.screens.get(self.focused_screen).unwrap()
+    }
 }
