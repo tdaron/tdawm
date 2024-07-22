@@ -19,6 +19,7 @@ use crate::tdawm::{Window, WindowId};
 pub struct X11Adapter {
     pub display: *mut xlib::Display,
     pub atom_manager: AtomManager,
+    pub root_window: WindowId,
 }
 #[derive(Debug, Error)]
 pub enum X11Error {
@@ -36,10 +37,11 @@ impl X11Adapter {
             return Err(X11Error::DisplayNotFound(display_name.into()));
         }
         let am = AtomManager::new();
-
+        let root_window = unsafe { xlib::XDefaultRootWindow(display) };
         Ok(X11Adapter {
             display,
             atom_manager: am,
+            root_window,
         })
     }
     pub fn init(&mut self) -> Vec<Screen> {
@@ -169,6 +171,33 @@ impl X11Adapter {
                 &data as *const u32 as *const u8,
                 1,
             );
+        }
+    }
+
+    pub fn get_mouse_position(&self) -> (i16, i16) {
+        unsafe {
+            // Variables to store mouse position
+            let mut root_return = 0;
+            let mut child_return = 0;
+            let mut root_x = 0;
+            let mut root_y = 0;
+            let mut win_x = 0;
+            let mut win_y = 0;
+            let mut mask_return = 0;
+
+            // Get mouse position
+            xlib::XQueryPointer(
+                self.display,
+                self.root_window,
+                &mut root_return,
+                &mut child_return,
+                &mut root_x,
+                &mut root_y,
+                &mut win_x,
+                &mut win_y,
+                &mut mask_return,
+            );
+            (root_x as i16, root_y as i16)
         }
     }
 }

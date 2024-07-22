@@ -42,7 +42,6 @@ impl TDAWm {
         let context = Context {
             screens,
             windows_by_id: HashMap::new(),
-            focused_screen: 0,
         };
         let t = TDAWm {
             server,
@@ -62,10 +61,11 @@ impl TDAWm {
                 }
                 // Window showed
                 xlib::MapRequest => {
+                    //TODO: Consider moving this into create notify
                     self.register_window(event)?;
                 }
                 // Window deleted
-                xlib::UnmapNotify => {
+                xlib::DestroyNotify => {
                     self.unregister_window(event)?;
                 }
 
@@ -85,7 +85,7 @@ impl TDAWm {
                     {
                         screen.focused_window = event.window;
                         self.server.focus_window(event.window);
-                        self.ctx.focused_screen = i;
+                        // self.ctx.focused_screen = i;
                     }
                 }
                 xlib::ClientMessage => {
@@ -133,9 +133,8 @@ impl TDAWm {
 
         self.server.put_window_on_top(event.window as WindowId);
         self.server.focus_window(event.window as WindowId);
-
         self.ctx
-            .focused_screen_mut()
+            .focused_screen_mut(self.server.get_mouse_position())
             .current_workspace_mut()
             .add_window(event.window as WindowId);
 
@@ -169,7 +168,7 @@ impl TDAWm {
         let event: xlib::XMapRequestEvent = From::from(event);
         info!("unregistering window with id {}", event.window);
         self.ctx
-            .focused_screen_mut()
+            .focused_screen_mut(self.server.get_mouse_position())
             .current_workspace_mut()
             .remove_window(&event.window);
 
@@ -199,7 +198,6 @@ impl TDAWm {
                 .spawn()
                 .expect("failed to execute process");
         }
-
         // Number keys at the top of the keyboard
         if event.keycode >= 10 && event.keycode <= 19 {
             let wc_id = event.keycode as u32 - 10;
@@ -224,7 +222,13 @@ impl TDAWm {
         // EWMH compliance. Windows can ask to be always on top
         // for example.
         // https://specifications.freedesktop.org/wm-spec/1.3/ar01s05.html
-        for window_id in self.ctx.focused_screen().current_workspace().windows.iter() {
+        for window_id in self
+            .ctx
+            .focused_screen(self.server.get_mouse_position())
+            .current_workspace()
+            .windows
+            .iter()
+        {
             let window = self.ctx.windows_by_id.get(window_id).unwrap();
             match window.window_type {
                 WindowType::Dock => {
@@ -245,11 +249,35 @@ impl TDAWm {
         Ok(())
     }
     fn switch_workspace(&mut self, index: usize) -> Result<(), TDAWmError> {
-        for window_id in self.ctx.focused_screen().current_workspace().windows.iter() {
+        info!("Going to workspace {}", index);
+        info!(
+            "count: {}",
+            self.ctx
+                .focused_screen(self.server.get_mouse_position())
+                .current_workspace()
+                .windows
+                .len()
+        );
+        for window_id in self
+            .ctx
+            .focused_screen(self.server.get_mouse_position())
+            .current_workspace()
+            .windows
+            .iter()
+        {
             self.server.hide_window(*window_id);
         }
-        if let Some(_ws) = self.ctx.focused_screen().workspaces.get(index) {
-            self.ctx.focused_screen_mut().current_workspace_id = index;
+        self.server.focus_window(self.server.root_window);
+        if let Some(_ws) = self
+            .ctx
+            .focused_screen(self.server.get_mouse_position())
+            .workspaces
+            .get(index)
+        {
+            info!("found workspace {}", index);
+            self.ctx
+                .focused_screen_mut(self.server.get_mouse_position())
+                .current_workspace_id = index;
         }
         self.server.ewmh_set_current_desktop(index);
         self.layout()

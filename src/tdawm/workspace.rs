@@ -1,5 +1,7 @@
 use std::collections::{BTreeSet, HashMap};
 
+use log::error;
+
 use crate::tdawm::WindowType;
 
 use super::{Window, WindowId};
@@ -21,7 +23,10 @@ impl Workspace {
     ) -> impl Iterator<Item = &'a Window> + 'a {
         self.windows
             .iter()
-            .map(|w_id| windows.get(&w_id).unwrap())
+            .map(|w_id| {
+                error!("id: {}, {:?}", w_id, windows.get(&w_id));
+                windows.get(&w_id).unwrap()
+            })
             .filter(move |w| matches!(w.window_type, WindowType::Normal))
     }
     pub fn add_window(&mut self, window: WindowId) {

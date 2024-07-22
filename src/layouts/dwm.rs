@@ -1,4 +1,4 @@
-use crate::tdawm::{TDAWmError, WindowId};
+use crate::tdawm::WindowId;
 
 use super::Layout;
 
