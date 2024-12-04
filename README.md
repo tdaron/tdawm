@@ -21,6 +21,7 @@
   <!-- </a> -->
 
 <h3 align="center">TDAWm</h3>
+  <strong>This projet has reached a stopping point as I move to Wayland for hidpi screens support :( </strong>
 
   <p align="center">
     This project is a <bold>X11</bold> Window Manager written in Rust.
